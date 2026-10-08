@@ -38,7 +38,7 @@ fun main() = runBlocking {
     println("[Cache] Using persistent cached Access Token.")
 
 //    val todayStr = "2026-09-27"
-    val todayStr = "2026-09-05"
+    val todayStr = "2026-10-08"
     val expiredData = false
     val backtestDate = System.getenv("BACKTEST_DATE") ?: todayStr
 
@@ -46,7 +46,7 @@ fun main() = runBlocking {
 
     val indices = listOf(
         Triple("Nifty 50", "NSE:NIFTY50-INDEX", 50.0),
-//        Triple("Bank Nifty", "NSE:NIFTYBANK-INDEX", 100.0),
+        Triple("Bank Nifty", "NSE:NIFTYBANK-INDEX", 100.0),
         Triple("Sensex", "BSE:SENSEX-INDEX", 100.0)
     )
 
@@ -102,7 +102,7 @@ fun main() = runBlocking {
             )
         }else
         {
-            val optionChain = viewModel.fetchOptionChain(appId, token, indexSymbol, 10)
+            val optionChain = viewModel.fetchOptionChain(appId, token, indexSymbol, 20)
 
             if (optionChain != null && optionChain.has("data")) {
                 val dataObj = optionChain.getJSONObject("data")
@@ -184,7 +184,7 @@ fun main() = runBlocking {
 
     println("\n[Backtest] Feeding ${allTicks.size} historical intraday ticks into Trading Engine...")
     for (tick in allTicks) {
-        engine.onTick(tick.symbol, tick.closePrice, tick.time, tick.timestamp * 1000)
+        engine.onCandleTick(tick.symbol, tick.openPrice, tick.highPrice, tick.lowPrice, tick.closePrice, tick.time, tick.timestamp * 1000)
     }
 
     println("\n==================================================")
@@ -198,6 +198,9 @@ data class CandleTick(
     val symbol: String,
     val timestamp: Long,
     val time: LocalTime,
+    val openPrice: Double,
+    val highPrice: Double,
+    val lowPrice: Double,
     val closePrice: Double
 )
 
@@ -269,10 +272,13 @@ suspend fun fetchDerivativeCandlesForOptions(
     for (i in 0 until candles.length()) {
         val c = candles.getJSONArray(i)
         val timestamp = c.getLong(0)
+        val open = c.getDouble(1)
+        val high = c.getDouble(2)
+        val low = c.getDouble(3)
         val close = c.getDouble(4)
         val instant = Instant.ofEpochSecond(timestamp)
         val time = LocalDateTime.ofInstant(instant, ZoneId.of("Asia/Kolkata")).toLocalTime()
-        list.add(CandleTick(symbol, timestamp, time, close))
+        list.add(CandleTick(symbol, timestamp, time, open, high, low, close))
     }
     return list
 }
@@ -289,10 +295,13 @@ suspend fun fetchIntradayCandles(viewModel: AuthViewModel, appId: String, token:
     for (i in 0 until candles.length()) {
         val c = candles.getJSONArray(i)
         val timestamp = c.getLong(0)
+        val open = c.getDouble(1)
+        val high = c.getDouble(2)
+        val low = c.getDouble(3)
         val close = c.getDouble(4)
         val instant = Instant.ofEpochSecond(timestamp)
         val time = LocalDateTime.ofInstant(instant, ZoneId.of("Asia/Kolkata")).toLocalTime()
-        list.add(CandleTick(symbol, timestamp, time, close))
+        list.add(CandleTick(symbol, timestamp, time, open, high, low, close))
     }
     return list
 }

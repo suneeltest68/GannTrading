@@ -129,7 +129,7 @@ class TradingWorkflowService(private val viewModel: AuthViewModel) {
         println("Calculated ATM Strike for $indexName: $atmStrike")
 
         delay(300) // Rate limiting safeguard
-        val optionChain = viewModel.fetchOptionChain(appId, token, indexSymbol, 10)
+        val optionChain = viewModel.fetchOptionChain(appId, token, indexSymbol, 20)
         
         var ceSymbol = ""
         var peSymbol = ""

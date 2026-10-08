@@ -41,7 +41,7 @@ object OptionUtils {
         optionType: String,
         expiryIndex: Int = 0
     ): String {
-        val strikeInterval = if (indexSymbol.contains("BANKNIFTY", ignoreCase = true)) 100 else 50
+        val strikeInterval = if (indexSymbol.contains("BANKNIFTY", ignoreCase = true) || indexSymbol.contains("SENSEX", ignoreCase = true) ) 100 else 50
         val atmStrike = calculateAtmStrike(spotPrice, strikeInterval)
 
         val optionChain = viewModel.fetchOptionChain(appId, token, indexSymbol, 10)
