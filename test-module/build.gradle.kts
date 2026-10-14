@@ -28,4 +28,5 @@ dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     implementation("io.github.cdimascio:dotenv-kotlin:6.4.1")
+    implementation("com.github.freva:ascii-table:1.13.0")
 }

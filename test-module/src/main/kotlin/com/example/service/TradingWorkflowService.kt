@@ -2,6 +2,7 @@ package com.example.service
 
 import com.example.viewmodel.AuthViewModel
 import com.example.model.GannLevels
+import com.example.service.GannCalculator
 import com.tts.`in`.websocket.FyersSocket
 import com.tts.`in`.websocket.FyersSocketDelegate
 import `in`.tts.hsjavalib.ChannelModes
@@ -169,6 +170,7 @@ class TradingWorkflowService(private val viewModel: AuthViewModel) {
         delay(200)
         val ceGann = calculateGannLevelsForSymbol(viewModel, appId, token, ceSymbol, priorTradingDate)
         if (ceGann != null) {
+            GannCalculator.printTable(ceSymbol, ceGann)
             synchronized(symbolsGannMap) {
                 symbolsGannMap[ceSymbol] = ceGann
                 quantitiesMap[ceSymbol] = lotQuantity
@@ -178,6 +180,7 @@ class TradingWorkflowService(private val viewModel: AuthViewModel) {
         delay(200)
         val peGann = calculateGannLevelsForSymbol(viewModel, appId, token, peSymbol, priorTradingDate)
         if (peGann != null) {
+            GannCalculator.printTable(peSymbol, peGann)
             synchronized(symbolsGannMap) {
                 symbolsGannMap[peSymbol] = peGann
                 quantitiesMap[peSymbol] = lotQuantity

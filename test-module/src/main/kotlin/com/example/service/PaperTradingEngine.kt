@@ -13,13 +13,23 @@ import kotlinx.coroutines.launch
 
 class PaperTradingEngine(
     private val symbolsGannMap: Map<String, GannLevels>,
-    private val quantitiesMap: Map<String, Int>
+    private val quantitiesMap: Map<String, Int>,
+    private val enablePartialExit: Boolean = true
 ) {
     private val stateFile = File("active_trades.json")
     private val tradesMap = ConcurrentHashMap<String, TradeState>()
     private val scope = CoroutineScope(Dispatchers.IO)
 
     var onTradeCompleted: ((TradeJournalEntry) -> Unit)? = null
+
+    private fun isBacktestMode(): Boolean = onTradeCompleted != null
+
+    private fun logEvent(msg: String) {
+        if (!isBacktestMode()) {
+            println(msg)
+            scope.launch { TelegramNotifier.sendAlert(msg) }
+        }
+    }
 
     private fun recordTrade(entry: TradeJournalEntry) {
         if (onTradeCompleted != null) {
@@ -73,19 +83,19 @@ class PaperTradingEngine(
         val istZone = ZoneId.of("Asia/Kolkata")
         val now = testTime ?: LocalTime.now(istZone)
 
-        // Do not process order placement or trade triggers before 9:16 AM IST
-        val marketTradingStart = LocalTime.of(9, 16)
+        // Do not process order placement or trade triggers before 9:15 AM IST
+        val marketTradingStart = LocalTime.of(9, 15)
         if (now.isBefore(marketTradingStart)) {
             return
         }
+
         val squareOffTime = LocalTime.of(15, 25)
         if (now.isAfter(squareOffTime) || now == squareOffTime) {
             try {
                 if (trade.status == "ACTIVE") {
                     val pnl = (close - trade.entryPrice) * trade.quantity
                     val msg = "[AUTO SQUARE-OFF @ $now] 3:25 PM EOD reached! Force exiting $symbol at LTP ${String.format("%.2f", close)} | P&L: ${String.format("%.2f", pnl)}"
-                    println(msg)
-                    scope.launch { TelegramNotifier.sendAlert(msg) }
+                    logEvent(msg)
                     
                     trade.exitTime = ts
                     recordTrade(TradeJournalEntry(symbol, trade.entryPrice, close, trade.quantity, pnl, "AUTO_SQUARE_OFF", entryTime = trade.entryTime, exitTime = trade.exitTime, tpLevel = trade.currentTpLevel, stopLoss = trade.stopLoss, initialStopLoss = trade.initialStopLoss, targets = trade.targets))
@@ -104,14 +114,12 @@ class PaperTradingEngine(
             "IDLE" -> {
                 if (open > trade.entryPrice) {
                     trade.status = "PENDING_LIMIT"
-                    println("[PENDING LIMIT ORDER @ $now] $symbol placed at Entry Price: ${String.format("%.2f", trade.entryPrice)} (Current LTP: ${String.format("%.2f", open)}). Waiting for price to drop.")
                     saveState()
                     if (low <= trade.entryPrice) {
                         triggerActiveEntry(symbol, trade, now, ts)
                     }
                 } else if (open < trade.entryPrice) {
                     trade.status = "PENDING_STOP_BUY"
-                    println("[PENDING STOP BUY @ $now] $symbol placed at Entry Price: ${String.format("%.2f", trade.entryPrice)} (Current LTP: ${String.format("%.2f", open)}). Waiting for price to rise.")
                     saveState()
                     if (high >= trade.entryPrice) {
                         triggerActiveEntry(symbol, trade, now, ts)
@@ -131,13 +139,18 @@ class PaperTradingEngine(
                 }
             }
             "ACTIVE" -> {
-                // 1. Check Targets & Trailing SL first during candle high
                 val targets = trade.targets
                 while (trade.currentTpLevel < targets.size) {
                     val nextTarget = targets[trade.currentTpLevel]
                     if (high >= nextTarget) {
                         trade.currentTpLevel++
                         if (trade.currentTpLevel == 1) {
+                            if (enablePartialExit && trade.quantity >= 2) {
+                                val exitQty = trade.quantity / 2
+                                trade.quantity -= exitQty
+                                val partialPnl = (nextTarget - trade.entryPrice) * exitQty
+                                recordTrade(TradeJournalEntry(symbol, trade.entryPrice, nextTarget, exitQty, partialPnl, "PARTIAL_TP1", entryTime = trade.entryTime, exitTime = ts, tpLevel = 1, stopLoss = trade.entryPrice, initialStopLoss = trade.initialStopLoss, targets = trade.targets))
+                            }
                             trade.stopLoss = trade.entryPrice
                         } else {
                             trade.stopLoss = targets[trade.currentTpLevel - 2]
@@ -148,7 +161,6 @@ class PaperTradingEngine(
                     }
                 }
 
-                // 2. Check Stop Loss against low of candle
                 if (low <= trade.stopLoss) {
                     try {
                         val pnl = (trade.stopLoss - trade.entryPrice) * trade.quantity
@@ -166,8 +178,7 @@ class PaperTradingEngine(
                         }
 
                         val msg = "[$tag @ $now] $symbol | Entry: ${String.format("%.2f", trade.entryPrice)} | SL: ${String.format("%.2f", trade.stopLoss)} | TP Level: ${trade.currentTpLevel} | LTP: ${String.format("%.2f", low)} | Est P&L: ${String.format("%.2f", pnl)}"
-                        println(msg)
-                        scope.launch { TelegramNotifier.sendAlert(msg) }
+                        logEvent(msg)
 
                         trade.exitTime = ts
                         recordTrade(TradeJournalEntry(symbol, trade.entryPrice, trade.stopLoss, trade.quantity, pnl, exitType, entryTime = trade.entryTime, exitTime = trade.exitTime, tpLevel = trade.currentTpLevel, stopLoss = trade.stopLoss, initialStopLoss = trade.initialStopLoss, targets = trade.targets))
@@ -188,8 +199,7 @@ class PaperTradingEngine(
                 }
                 if (trade.priceBelowEntrySeen && high >= trade.entryPrice) {
                     val msg = "[RE-ENTRY TRIGGERED @ $now] $symbol re-opened at Buy Price: ${String.format("%.2f", trade.entryPrice)} | LTP: ${String.format("%.2f", high)}"
-                    println(msg)
-                    scope.launch { TelegramNotifier.sendAlert(msg) }
+                    logEvent(msg)
 
                     trade.status = "ACTIVE"
                     trade.stopLoss = gann.stopLoss
@@ -205,12 +215,11 @@ class PaperTradingEngine(
     private fun triggerActiveEntry(symbol: String, trade: TradeState, now: LocalTime, ts: Long) {
         val marketTradingStart = LocalTime.of(9, 16)
         if (now.isBefore(marketTradingStart)) {
-            return // Skip entries before 9:16 AM IST
+            return
         }
 
         val msg = "[TRADE PLACED @ $now] $symbol at Entry: ${String.format("%.2f", trade.entryPrice)} | Qty: ${trade.quantity}"
-        println(msg)
-        scope.launch { TelegramNotifier.sendAlert(msg) }
+        logEvent(msg)
 
         trade.status = "ACTIVE"
         trade.currentTpLevel = 0
@@ -219,6 +228,7 @@ class PaperTradingEngine(
     }
 
     private fun checkAndSendEodSummary() {
+        if (isBacktestMode()) return
         val allExited = tradesMap.values.all { it.status == "EXITED" }
         if (allExited) {
             val journalReport = TradingJournalService.getJournalReport()
@@ -282,10 +292,12 @@ class PaperTradingEngine(
     }
 
     fun printStatus() {
-        println("\n=== PAPER TRADING ENGINE STATUS ===")
-        for ((symbol, trade) in tradesMap) {
-            println("Symbol: $symbol | Status: ${trade.status} | Entry: ${String.format("%.2f", trade.entryPrice)} | SL: ${String.format("%.2f", trade.stopLoss)} | Active TP Level: ${trade.currentTpLevel}/10 | Qty: ${trade.quantity}")
+        if (!isBacktestMode()) {
+            println("\n=== PAPER TRADING ENGINE STATUS ===")
+            for ((symbol, trade) in tradesMap) {
+                println("Symbol: $symbol | Status: ${trade.status} | Entry: ${String.format("%.2f", trade.entryPrice)} | SL: ${String.format("%.2f", trade.stopLoss)} | Active TP Level: ${trade.currentTpLevel}/10 | Qty: ${trade.quantity}")
+            }
+            println("=====================================")
         }
-        println("=====================================")
     }
 }

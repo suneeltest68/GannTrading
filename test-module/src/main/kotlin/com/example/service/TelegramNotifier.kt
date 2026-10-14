@@ -1,6 +1,5 @@
 package com.example.service
 
-import com.example.service.TelegramNotifier.dotenv
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -9,26 +8,20 @@ import java.net.URL
 import java.io.OutputStreamWriter
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import kotlin.text.get
 
 object TelegramNotifier {
-    // Loaded securely from environment variables for production / server deployment
     private val dotenv = dotenv {
         ignoreIfMissing = true
     }
 
     private val botToken: String
-        get() = TelegramNotifier.get("TELEGRAM_BOT_TOKEN")
-            ?: "YOUR_BOT_TOKEN_HERE"
+        get() = get("TELEGRAM_BOT_TOKEN") ?: "YOUR_BOT_TOKEN_HERE"
 
     private val chatId: String
-        get() = TelegramNotifier.get("TELEGRAM_CHAT_ID")
-            ?: "YOUR_CHAT_ID_HERE"
+        get() = get("TELEGRAM_CHAT_ID") ?: "YOUR_CHAT_ID_HERE"
 
     private val isEnabled: Boolean
-        get() = TelegramNotifier.get("TELEGRAM_ENABLED")
-            ?.toBoolean()
-            ?: true
+        get() = get("TELEGRAM_ENABLED")?.toBoolean() ?: true
 
     fun get(key: String): String? {
         return System.getenv(key) ?: dotenv[key]
@@ -36,7 +29,6 @@ object TelegramNotifier {
 
     suspend fun sendAlert(message: String) {
         if (!isEnabled || botToken == "YOUR_BOT_TOKEN_HERE" || chatId == "YOUR_CHAT_ID_HERE") {
-            println("[Telegram Alert - Mock] $message")
             return
         }
 
@@ -58,11 +50,9 @@ object TelegramNotifier {
 
                 val responseCode = conn.responseCode
                 if (responseCode !in 200..299) {
-                    println("Failed to send Telegram alert. Response code: $responseCode")
+                    // Silently ignore during backtest / mock calls
                 }
-            } catch (e: Exception) {
-                println("Telegram alert exception: ${e.message}")
-            }
+            } catch (_: Exception) {}
         }
     }
 }
