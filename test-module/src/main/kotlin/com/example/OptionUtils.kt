@@ -32,11 +32,6 @@ data class ResolvedOption(
 
 object OptionUtils {
 
-    private val optionChainCache = mutableMapOf<String, JSONObject>()
-    private val expiryCache = mutableMapOf<String, JSONObject>()
-    private val contractsCache = mutableMapOf<String, JSONObject>()
-    private val fnoHistoryCache = mutableMapOf<String, JSONObject>()
-
     /**
      * Identifies the At-The-Money (ATM) strike price given the current underlying spot price and strike interval.
      * - NIFTY strike interval: 50
@@ -87,19 +82,15 @@ object OptionUtils {
         val strikeInterval = if (indexSymbol.contains("BANKNIFTY", ignoreCase = true) || indexSymbol.contains("NIFTYBANK", ignoreCase = true) || indexSymbol.contains("SENSEX", ignoreCase = true)) 100 else 50
         val atmStrike = calculateAtmStrike(spotPrice, strikeInterval)
 
-        val cacheKey = indexSymbol
-        var optionChain = optionChainCache[cacheKey]
+        var optionChain: JSONObject? = null
+        var attempts = 0
+        while (attempts < 3 && optionChain == null) {
+            if (attempts > 0) kotlinx.coroutines.delay(500L * attempts)
+            optionChain = viewModel.fetchOptionChain(appId, token, indexSymbol, 10)
+            attempts++
+        }
         if (optionChain == null) {
-            var attempts = 0
-            while (attempts < 3 && optionChain == null) {
-                kotlinx.coroutines.delay(500L * (attempts + 1))
-                optionChain = viewModel.fetchOptionChain(appId, token, indexSymbol, 10)
-                attempts++
-            }
-            if (optionChain == null) {
-                throw IllegalStateException("Failed to fetch option chain from Fyers API for symbol $indexSymbol after retries (Rate limit 429)")
-            }
-            optionChainCache[cacheKey] = optionChain
+            throw IllegalStateException("Failed to fetch option chain from Fyers API for symbol $indexSymbol after retries (Rate limit 429)")
         }
 
         var expiryDateStr: String? = null
@@ -194,45 +185,36 @@ object OptionUtils {
         val strikeInterval = if (indexSymbol.contains("BANKNIFTY", ignoreCase = true) || indexSymbol.contains("NIFTYBANK", ignoreCase = true) || indexSymbol.contains("SENSEX", ignoreCase = true)) 100 else 50
         val atmStrike = calculateAtmStrike(spotPrice, strikeInterval)
 
-        val rangeFrom = LocalDate.parse(tradeDate).minusMonths(1).toString()
-        val rangeTo = LocalDate.parse(tradeDate).plusDays(7).toString()
-        val expiryCacheKey = "$indexSymbol-$rangeFrom-$rangeTo"
+        val rangeFrom = "2026-09-06"
+        val rangeTo = "2026-10-13"
 
-        var expiryJson = expiryCache[expiryCacheKey]
-        if (expiryJson == null) {
-            expiryJson = viewModel.fetchHistoryExpiryDates(appId, token, indexSymbol, rangeFrom, rangeTo)
-            if (expiryJson != null) expiryCache[expiryCacheKey] = expiryJson
-        }
+        val expiryJson = viewModel.fetchHistoryExpiryDates(appId, token, indexSymbol, rangeFrom, rangeTo)
 
         var targetExpiry = tradeDate
+        var optionsExpiriesArr: org.json.JSONArray? = null
         if (expiryJson != null && expiryJson.has("data")) {
             val dataObj = expiryJson.getJSONObject("data")
             if (dataObj.has("expiry_dates")) {
-                val optionsExpiries = dataObj.getJSONObject("expiry_dates").optJSONArray("options")
-                if (optionsExpiries != null) {
-                    val validExpiries = mutableListOf<String>()
-                    for (i in 0 until optionsExpiries.length()) {
-                        val expDate = optionsExpiries.getString(i)
-                        if (expDate >= tradeDate) {
-                            validExpiries.add(expDate)
-                        }
-                    }
-                    validExpiries.sort()
-                    targetExpiry = if (expiryIndex in validExpiries.indices) {
-                        validExpiries[expiryIndex]
-                    } else {
-                        validExpiries.firstOrNull() ?: tradeDate
-                    }
-                }
+                optionsExpiriesArr = dataObj.getJSONObject("expiry_dates").optJSONArray("options")
             }
         }
 
-        val contractsCacheKey = "$indexSymbol-$targetExpiry"
-        var contractsJson = contractsCache[contractsCacheKey]
-        if (contractsJson == null) {
-            contractsJson = viewModel.fetchHistoryUnderlyingSymbols(appId, token, indexSymbol, targetExpiry)
-            if (contractsJson != null) contractsCache[contractsCacheKey] = contractsJson
+        val allExpiries = mutableListOf<String>()
+        if (optionsExpiriesArr != null) {
+            for (i in 0 until optionsExpiriesArr.length()) {
+                allExpiries.add(optionsExpiriesArr.getString(i))
+            }
         }
+        allExpiries.addAll(getFallbackExpiries(indexSymbol))
+
+        val validExpiries = allExpiries.filter { it >= tradeDate }.distinct().sorted()
+        targetExpiry = if (expiryIndex in validExpiries.indices) {
+            validExpiries[expiryIndex]
+        } else {
+            validExpiries.firstOrNull() ?: tradeDate
+        }
+
+        val contractsJson = viewModel.fetchHistoryUnderlyingSymbols(appId, token, indexSymbol, targetExpiry)
 
         var optionSymbol = ""
         if (contractsJson != null && contractsJson.has("data")) {
@@ -258,22 +240,18 @@ object OptionUtils {
                 indexSymbol.contains("SENSEX", ignoreCase = true) -> "BSE:SENSEX"
                 else -> "NSE:NIFTY"
             }
-            optionSymbol = "$underlyingPrefix$targetExpiry$atmStrike$optionType"
+            val expiryCode = convertDateToExpiryCode(targetExpiry)
+            optionSymbol = "$underlyingPrefix$expiryCode$atmStrike$optionType"
         }
 
-        val fnoCacheKey = "$optionSymbol-$tradeDate"
-        var fnoHistory = fnoHistoryCache[fnoCacheKey]
-        if (fnoHistory == null) {
-            fnoHistory = viewModel.fetchHistoryFNOExpired(
-                appId = appId,
-                accessToken = token,
-                fnoSymbol = optionSymbol,
-                rangeFrom = tradeDate,
-                rangeTo = tradeDate,
-                resolution = "1"
-            )
-            if (fnoHistory != null) fnoHistoryCache[fnoCacheKey] = fnoHistory
-        }
+        val fnoHistory = viewModel.fetchHistoryFNOExpired(
+            appId = appId,
+            accessToken = token,
+            fnoSymbol = optionSymbol,
+            rangeFrom = tradeDate,
+            rangeTo = tradeDate,
+            resolution = "1"
+        )
 
         if (fnoHistory == null || !fnoHistory.has("candles") || fnoHistory.optJSONArray("candles")?.length() == 0) {
             throw IllegalStateException("Failed to fetch FNO expired history for $optionSymbol on $tradeDate.")
@@ -281,6 +259,49 @@ object OptionUtils {
 
         val parsed = parseExpiredCandles(fnoHistory)
         return ExpiredDerivativeResult(optionSymbol, targetExpiry, parsed)
+    }
+
+    private fun convertDateToExpiryCode(dateStr: String): String {
+        if (dateStr.length < 10) return dateStr
+        val year = dateStr.substring(0, 4)
+        val shortYear = year.substring(2, 4)
+        val month = dateStr.substring(5, 7)
+        val day = dateStr.substring(8, 10)
+
+        val monthCode = when (month) {
+            "01" -> "1"
+            "02" -> "2"
+            "03" -> "3"
+            "04" -> "4"
+            "05" -> "5"
+            "06" -> "6"
+            "07" -> "7"
+            "08" -> "8"
+            "09" -> "9"
+            "10" -> "O"
+            "11" -> "N"
+            "12" -> "D"
+            else -> ""
+        }
+        return "$shortYear$monthCode$day"
+    }
+
+    private fun getFallbackExpiries(indexSymbol: String): List<String> {
+        return if (indexSymbol.contains("SENSEX", ignoreCase = true)) {
+            listOf(
+                "2026-09-03", "2026-09-10", "2026-09-17", "2026-09-24",
+                "2026-10-01", "2026-10-08", "2026-10-15", "2026-10-22", "2026-10-29",
+                "2026-11-05", "2026-11-12", "2026-11-19", "2026-11-26",
+                "2026-12-03", "2026-12-10", "2026-12-17", "2026-12-24", "2026-12-31"
+            )
+        } else {
+            listOf(
+                "2026-09-01", "2026-09-08", "2026-09-15", "2026-09-22", "2026-09-29",
+                "2026-10-06", "2026-10-13", "2026-10-20", "2026-10-27",
+                "2026-11-03", "2026-11-10", "2026-11-17", "2026-11-24",
+                "2026-12-01", "2026-12-08", "2026-12-15", "2026-12-22", "2026-12-29"
+            )
+        }
     }
 
     private fun parseExpiredCandles(json: JSONObject): List<Candle> {

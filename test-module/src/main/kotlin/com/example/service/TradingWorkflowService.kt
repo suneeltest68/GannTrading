@@ -64,17 +64,17 @@ class TradingWorkflowService(private val viewModel: AuthViewModel) {
                 delay(100)
                 processIndexWorkflow(appId, token, "Nifty 50", "NSE:NIFTY50-INDEX", targetDateStr, 50.0, 130)
             }
-            val bankNiftyDeferred = async {
+            /*val bankNiftyDeferred = async {
                 delay(300)
                 processIndexWorkflow(appId, token, "Bank Nifty", "NSE:NIFTYBANK-INDEX", targetDateStr, 100.0, 60)
-            }
+            }*/
             val sensexDeferred = async {
                 delay(500)
                 processIndexWorkflow(appId, token, "Sensex", "BSE:SENSEX-INDEX", targetDateStr, 100.0, 40)
             }
 
             niftyDeferred.await()
-            bankNiftyDeferred.await()
+//            bankNiftyDeferred.await()
             sensexDeferred.await()
         }
 

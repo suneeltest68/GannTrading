@@ -27,18 +27,14 @@ fun main() {
         System.getenv("FYERS_REDIRECT_URI")
             ?: dotenv["FYERS_REDIRECT_URI"]
 
-    // Check if we have a valid cached token
     val cachedToken = viewModel.getCachedToken()
-    if (cachedToken != null) {
-        println("\n[Cache] Found cached Access Token! Skipping login flow.")
+    val tokenToUse = cachedToken ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"]
+    if (!tokenToUse.isNullOrEmpty()) {
+        println("\n[Cache/Env] Using valid Access Token.")
         runBlocking {
-            workflowService.executeCurrentExpiryWorkflow(appId, cachedToken)
+            workflowService.executeCurrentExpiryWorkflow(appId, tokenToUse)
         }
         return
-    } else {
-        runBlocking {
-            TelegramNotifier.sendAlert("⚠️ [Fyers Bot] No access token found! Manual re-authentication required.")
-        }
     }
 
     viewModel.prepareLoginUrl(appId, redirectUri)
@@ -65,9 +61,9 @@ fun main() {
 
     val finalState = viewModel.authState.value
     if (finalState.accessToken != null) {
-        println("\nSUCCESS! Access Token acquired and cached.")
+        println("\nSUCCESS! Access Token acquired.")
         runBlocking {
-            TelegramNotifier.sendAlert("✅ [Fyers Bot] Access Token refreshed & cached successfully! Starting trading workflow...")
+            TelegramNotifier.sendAlert("✅ [Fyers Bot] Access Token acquired successfully! Starting trading workflow...")
             workflowService.executeCurrentExpiryWorkflow(appId, finalState.accessToken)
         }
     } else {

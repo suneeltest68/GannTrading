@@ -24,17 +24,15 @@ fun main() {
         System.getenv("FYERS_REDIRECT_URI")
             ?: dotenv["FYERS_REDIRECT_URI"]
 
-    // Check if we have a valid cached token
     val cachedToken = viewModel.getCachedToken()
-    if (cachedToken != null) {
-        println("\n[Cache] Found valid cached Access Token! Skipping login flow.")
+    val tokenToUse = cachedToken ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"]
+    if (!tokenToUse.isNullOrEmpty()) {
+        println("\n[Cache/Env] Using valid Access Token.")
         val success = runBlocking {
-            fetchUserDataAndHistory(viewModel, appId, cachedToken)
+            fetchUserDataAndHistory(viewModel, appId, tokenToUse)
         }
         if (success) {
             return
-        } else {
-            println("\nCached token is invalid or expired. Re-initiating login flow...")
         }
     }
 
@@ -60,7 +58,7 @@ fun performLoginFlow(viewModel: AuthViewModel, scanner: Scanner, appId: String, 
 
     val finalState = viewModel.authState.value
     if (finalState.accessToken != null) {
-        println("\nSUCCESS! Access Token acquired and cached.")
+        println("\nSUCCESS! Access Token acquired.")
         runBlocking {
             fetchUserDataAndHistory(viewModel, appId, finalState.accessToken)
         }

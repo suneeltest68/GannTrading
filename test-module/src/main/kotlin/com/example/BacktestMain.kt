@@ -28,10 +28,10 @@ fun main() = runBlocking {
 
     val appId = System.getenv("FYERS_APP_ID") ?: dotenv["FYERS_APP_ID"] ?: return@runBlocking
     val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: return@runBlocking
-    println("[Cache] Using persistent cached Access Token.")
+    println("[Cache/Auth] Using Access Token.")
 
-    val defaultStartDate = System.getenv("START_DATE") ?: "2026-10-01"
-    val defaultEndDate = System.getenv("END_DATE") ?: "2026-10-14"
+    val defaultStartDate = System.getenv("START_DATE") ?: "2026-10-19"
+    val defaultEndDate = System.getenv("END_DATE") ?: "2026-10-19"
 
     val startDate = LocalDate.parse(defaultStartDate)
     val endDate = LocalDate.parse(defaultEndDate)
@@ -100,8 +100,8 @@ fun main() = runBlocking {
                         )
                         derivativeSymbol = resolvedOpt.symbol
                         expiryDate = resolvedOpt.expiryDate
-                        val history = viewModel.fetchHistoricalDataInChunks(appId, token, derivativeSymbol, "5S", backtestDate, backtestDate)
-                            ?: viewModel.fetchHistoricalData(appId, token, derivativeSymbol, "5S", backtestDate, backtestDate)
+                        val history = viewModel.fetchHistoricalDataInChunks(appId, token, derivativeSymbol, "1", backtestDate, backtestDate)
+                            ?: viewModel.fetchHistoricalData(appId, token, derivativeSymbol, "1", backtestDate, backtestDate)
                         candlesList = parseCandlesFromHistory(history)
                     }
 
@@ -209,7 +209,7 @@ fun parseCandlesFromHistory(json: JSONObject?): List<Candle> {
 
 fun printDetailedBacktestReport(dateStr: String, trades: List<TradeJournalEntry>, cumulativePnl: Double) {
     val dayPnl = trades.sumOf { it.pnl }
-    val headers = listOf("Trade #", "Status", "Time Range", "Symbol", "Exit Reason", "TP Level", "P&L")
+    val headers = listOf("Trade #", "Status", "Time Range", "Symbol", "Entry", "Exit", "Exit Reason", "TP Level", "P&L")
 
     val sortedTrades = trades.sortedWith(compareBy({ it.entryTime }, { it.exitTime }))
     val tradeNumberMap = mutableMapOf<Pair<Long, String>, Int>()
@@ -228,6 +228,8 @@ fun printDetailedBacktestReport(dateStr: String, trades: List<TradeJournalEntry>
             emoji,
             "$entryTimeStr ➜ $exitTimeStr",
             t.symbol,
+            String.format("%.2f", t.entryPrice),
+            String.format("%.2f", t.exitPrice),
             t.exitReason,
             tpLabel,
             String.format("%.2f", t.pnl)

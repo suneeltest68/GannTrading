@@ -154,24 +154,20 @@ fun main() = runBlocking {
         println("🌅 [Daily Routine] Starting Trading Session...")
         println("--------------------------------------------------")
 
-        // Clear cached token at the start of every daily trading session
-        viewModel.clearToken()
-
         val cachedToken = viewModel.getCachedToken()
-        var activeToken: String? = null
+        var activeToken: String? = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: cachedToken
 
-        if (cachedToken != null) {
-            println("[Cache] Using cached Access Token.")
-            activeToken = cachedToken
+        if (activeToken != null) {
+            println("[Cache/Env] Using active Access Token.")
         }
 
-        if (activeToken == null) {
-            println("[Auth] Access token expired or missing. Waiting for OAuth callback...")
+        if (activeToken.isNullOrEmpty()) {
+            println("[Auth] Access token missing. Waiting for OAuth callback...")
             
             viewModel.prepareLoginUrl(appId, redirectUri)
             val loginUrl = viewModel.authState.value.loginUrl
             
-            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Access Token expired or missing! Please login & authorize:\n$loginUrl")
+            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Access Token missing! Please login & authorize:\n$loginUrl")
 
             authCodeDeferred = CompletableDeferred()
 
@@ -192,7 +188,7 @@ fun main() = runBlocking {
                 val finalState = viewModel.authState.value
                 if (finalState.accessToken != null) {
                     activeToken = finalState.accessToken
-                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Access Token refreshed & cached successfully via web callback!")
+                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Access Token acquired successfully via web callback!")
                 } else {
                     TelegramNotifier.sendAlert("❌ [Fyers Railway Daemon] Token exchange failed: ${finalState.errorMessage}")
                 }
