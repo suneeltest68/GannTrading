@@ -193,6 +193,12 @@ class PaperTradingEngine(
                 }
             }
             "EXITED" -> {
+                // Cooldown: enforce a mandatory 1-minute (60,000 ms) wait window after exit before re-entry evaluation
+                val cooldownMillis = 60_000L
+                if (trade.exitTime > 0 && (ts - trade.exitTime) < cooldownMillis) {
+                    return
+                }
+
                 if (!trade.priceBelowEntrySeen && low < trade.entryPrice) {
                     trade.priceBelowEntrySeen = true
                     saveState()
