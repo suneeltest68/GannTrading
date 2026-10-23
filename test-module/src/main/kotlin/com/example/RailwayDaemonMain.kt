@@ -16,6 +16,12 @@ import java.time.ZoneId
 import java.time.Duration
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.net.URL
+import java.net.HttpURLConnection
+import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineScope
 
 fun main() = runBlocking {
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -47,6 +53,50 @@ fun main() = runBlocking {
     if (appId.isNullOrEmpty() || secretKey.isNullOrEmpty() || redirectUri.isNullOrEmpty()) {
         println("❌ Error: Missing required Fyers environment variables.")
         return@runBlocking
+    }
+
+    // Start background Telegram Polling for /auth command
+    CoroutineScope(Dispatchers.IO).launch {
+        var lastUpdateId = 0L
+        while (true) {
+            try {
+                val botToken = System.getenv("TELEGRAM_BOT_TOKEN") ?: dotenv["TELEGRAM_BOT_TOKEN"]
+                if (!botToken.isNullOrEmpty() && botToken != "YOUR_BOT_TOKEN_HERE") {
+                    val url = URL("https://api.telegram.org/bot$botToken/getUpdates?offset=${lastUpdateId + 1}&timeout=30")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.connectTimeout = 35_000
+                    conn.readTimeout = 35_000
+                    if (conn.responseCode == 200) {
+                        val responseStr = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(responseStr)
+                        if (json.optBoolean("ok", false)) {
+                            val resultArray = json.optJSONArray("result")
+                            if (resultArray != null) {
+                                for (i in 0 until resultArray.length()) {
+                                    val update = resultArray.getJSONObject(i)
+                                    val updateId = update.optLong("update_id", 0L)
+                                    if (updateId > lastUpdateId) {
+                                        lastUpdateId = updateId
+                                    }
+                                    val message = update.optJSONObject("message")
+                                    val text = message?.optString("text", "")?.trim() ?: ""
+                                    if (text.equals("/auth", ignoreCase = true)) {
+                                        println("[Telegram] Received /auth command! Clearing token and triggering fresh authentication...")
+                                        viewModel.clearToken()
+                                        viewModel.prepareLoginUrl(appId, redirectUri)
+                                        val loginUrl = viewModel.authState.value.loginUrl
+                                        TelegramNotifier.sendAlert("🔐 [Fyers Auth Requested via Telegram] Old token cleared. Please click below to login and authorize:\n$loginUrl")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // Ignore network errors during polling
+            }
+            delay(5000L)
+        }
     }
 
     var authCodeDeferred: CompletableDeferred<String>? = null
