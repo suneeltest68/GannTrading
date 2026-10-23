@@ -154,20 +154,23 @@ fun main() = runBlocking {
         println("🌅 [Daily Routine] Starting Trading Session...")
         println("--------------------------------------------------")
 
-        val cachedToken = viewModel.getCachedToken()
-        var activeToken: String? = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: cachedToken
+        // Clear old token at 9:00 AM IST trigger so live trading never uses cached tokens
+        viewModel.clearToken()
+
+        // For live trading, do not use cached token. Only allow environment token if explicitly provided, otherwise force fresh auth.
+        var activeToken: String? = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"]
 
         if (activeToken != null) {
-            println("[Cache/Env] Using active Access Token.")
+            println("[Env] Using Access Token from environment.")
         }
 
         if (activeToken.isNullOrEmpty()) {
-            println("[Auth] Access token missing. Waiting for OAuth callback...")
+            println("[Auth] Access token missing. Clearing old token & waiting for OAuth callback...")
             
             viewModel.prepareLoginUrl(appId, redirectUri)
             val loginUrl = viewModel.authState.value.loginUrl
             
-            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Access Token missing! Please login & authorize:\n$loginUrl")
+            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Daily Auth Required! Access token cleared. Please login & authorize:\n$loginUrl")
 
             authCodeDeferred = CompletableDeferred()
 
