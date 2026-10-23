@@ -105,6 +105,14 @@ fun main() = runBlocking {
                 if (!code.isNullOrEmpty()) {
                     authCodeDeferred?.complete(code)
                 }
+            } else if (path == "/auth") {
+                viewModel.prepareLoginUrl(appId, redirectUri)
+                val loginUrl = viewModel.authState.value.loginUrl
+                val html = "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1>🔐 Fyers Bot Authentication</h1><p>Click below to authorize your Fyers account:</p><a href='$loginUrl' style='background: #0052FF; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-top: 20px;'>Login with Fyers</a></body></html>"
+                exchange.responseHeaders.set("Content-Type", "text/html; charset=UTF-8")
+                val bytes = html.toByteArray(StandardCharsets.UTF_8)
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
             } else {
                 // Serve Gann Trading Journal Dashboard (journal-web/index.html)
                 val file = listOf(
