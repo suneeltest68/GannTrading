@@ -28,7 +28,12 @@ object TelegramNotifier {
     }
 
     suspend fun sendAlert(message: String) {
-        if (!isEnabled || botToken == "YOUR_BOT_TOKEN_HERE" || chatId == "YOUR_CHAT_ID_HERE") {
+        if (!isEnabled) {
+            return
+        }
+
+        if (botToken == "YOUR_BOT_TOKEN_HERE" || chatId == "YOUR_CHAT_ID_HERE" || botToken.isEmpty() || chatId.isEmpty()) {
+            println("[Telegram] Warning: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not configured. Alert not sent: $message")
             return
         }
 
@@ -50,9 +55,14 @@ object TelegramNotifier {
 
                 val responseCode = conn.responseCode
                 if (responseCode !in 200..299) {
-                    // Silently ignore during backtest / mock calls
+                    val errorStream = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown error"
+                    println("[Telegram] Error sending alert (HTTP $responseCode): $errorStream")
+                } else {
+                    println("[Telegram] Alert sent successfully.")
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                println("[Telegram] Exception sending alert: ${e.message}")
+            }
         }
     }
 }
