@@ -553,6 +553,68 @@
         .badge { padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 500; display: inline-block; }
         .badge-green { background: var(--md-sys-color-success-container); color: var(--md-sys-color-success); }
         .badge-red { background: var(--md-sys-color-error-container); color: var(--md-sys-color-error); }
+
+        /* Trade Tape Table Styling */
+        .trade-tape-card {
+            background: var(--md-sys-color-surface);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            animation: fadeInUp 0.4s ease-out;
+        }
+        .trade-tape-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--card-border);
+            padding-bottom: 12px;
+        }
+        .trade-tape-title {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: var(--md-sys-color-on-surface-variant);
+            text-transform: uppercase;
+        }
+        .fills-badge {
+            background: var(--md-sys-color-surface-variant);
+            border: 1px solid var(--card-border);
+            color: var(--md-sys-color-on-surface);
+            padding: 6px 14px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .table-responsive {
+            overflow-x: auto;
+        }
+        .trade-tape-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Roboto Mono', monospace, sans-serif;
+            font-size: 13px;
+            text-align: left;
+        }
+        .trade-tape-table th {
+            color: var(--md-sys-color-on-surface-variant);
+            font-weight: 500;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--card-border);
+            font-size: 11px;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }
+        .trade-tape-table td {
+            padding: 16px;
+            border-bottom: 1px solid rgba(45, 51, 59, 0.4);
+            color: var(--md-sys-color-on-surface);
+        }
+        .trade-tape-table tr:hover {
+            background: rgba(255, 179, 0, 0.03);
+        }
     </style>
 </head>
 <body>
@@ -677,9 +739,9 @@
         </div>
     </div>
 
-    <!-- SECTION: TRADES (DAILY LIST) -->
+    <!-- SECTION: TRADES (TRADE TAPE) -->
     <div id="section-trades" class="section">
-        <div class="filter-bar">
+        <div class="filter-bar" style="margin-bottom: 20px;">
             <div class="search-container">
                 <span class="material-icons">search</span>
                 <input type="text" class="search-input" id="trade-search" placeholder="Search symbol..." oninput="renderTradesList()">
@@ -690,8 +752,30 @@
                 <button class="filter-btn" onclick="setTradeFilter('loss', this)">Losses</button>
             </div>
         </div>
-        <div id="trades-list-container">
-            <!-- Daily summary rows inserted here -->
+        <div class="trade-tape-card">
+            <div class="trade-tape-header">
+                <span class="trade-tape-title">TRADE TAPE / CLOSED TRADES</span>
+                <span class="fills-badge" id="fills-badge">0 FILLS</span>
+            </div>
+            <div class="table-responsive">
+                <table class="trade-tape-table">
+                    <thead>
+                        <tr>
+                            <th>TIME</th>
+                            <th>DIR</th>
+                            <th>CONTRACT</th>
+                            <th>QTY</th>
+                            <th>ENTRY</th>
+                            <th>EXIT</th>
+                            <th>P&L</th>
+                            <th>REASON</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trade-tape-tbody">
+                        <!-- Fills inserted here -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -952,49 +1036,47 @@
     }
 
     function renderTradesList() {
-        const container = document.getElementById('trades-list-container');
-        container.innerHTML = '';
+        const tbody = document.getElementById('trade-tape-tbody');
+        const badge = document.getElementById('fills-badge');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
         const searchQuery = (document.getElementById('trade-search').value || '').toLowerCase();
         const trades = journalData.trades || [];
 
-        const dailyMap = {};
-        trades.forEach(t => {
-            if (searchQuery && !t.symbol.toLowerCase().includes(searchQuery)) return;
-            if (currentTradeFilter === 'profit' && t.pnl < 0) return;
-            if (currentTradeFilter === 'loss' && t.pnl >= 0) return;
-
-            const d = t.date;
-            if (!dailyMap[d]) dailyMap[d] = { pnl: 0, wins: 0, losses: 0, trades: [] };
-            dailyMap[d].pnl += t.pnl;
-            if (t.pnl >= 0) dailyMap[d].wins++; else dailyMap[d].losses++;
-            dailyMap[d].trades.push(t);
+        const filteredTrades = trades.filter(t => {
+            if (searchQuery && !t.symbol.toLowerCase().includes(searchQuery)) return false;
+            if (currentTradeFilter === 'profit' && t.pnl < 0) return false;
+            if (currentTradeFilter === 'loss' && t.pnl >= 0) return false;
+            return true;
         });
 
-        const sortedDates = Object.keys(dailyMap).sort().reverse();
+        const sortedTrades = [...filteredTrades].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        if (badge) badge.textContent = `${sortedTrades.length} FILLS`;
 
-        if (sortedDates.length === 0) {
-            container.innerHTML = `<div style="text-align: center; color: var(--md-sys-color-on-surface-variant); padding: 40px;">No trades found matching filters.</div>`;
+        if (sortedTrades.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--md-sys-color-on-surface-variant); padding: 40px;">No closed trades found matching filters.</td></tr>`;
             return;
         }
 
-        sortedDates.forEach(dateStr => {
-            const dayData = dailyMap[dateStr];
-            const isProfit = dayData.pnl >= 0;
+        sortedTrades.forEach(t => {
+            const timeStr = t.exitTime ? new Date(t.exitTime).toLocaleTimeString('en-US', { hour12: false }) : (t.timestamp ? new Date(t.timestamp).toLocaleTimeString('en-US', { hour12: false }) : '00:00:00');
+            const dir = "LONG";
+            const isProfit = t.pnl >= 0;
+            const pnlStr = (isProfit ? '+₹' : '-₹') + Math.abs(t.pnl).toFixed(2);
 
-            const card = document.createElement('div');
-            card.className = 'trade-row-card';
-            card.onclick = () => openModal(dateStr, dayData.trades);
-
-            card.innerHTML = `
-                <div class="trade-row-left">
-                    <div class="trade-row-date">${formatDatePretty(dateStr)}</div>
-                    <div class="trade-row-meta">${dayData.trades.length} trades · ${dayData.wins}W ${dayData.losses}L</div>
-                </div>
-                <div class="trade-row-pnl ${isProfit ? 'profit' : 'loss'}">
-                    ${isProfit ? '+' : ''}₹${dayData.pnl.toFixed(2)}
-                </div>
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="color: var(--md-sys-color-on-surface-variant);">${timeStr}</td>
+                <td style="font-weight: 700; color: var(--md-sys-color-primary);">${dir}</td>
+                <td style="font-weight: 700;">${t.symbol}</td>
+                <td>${t.quantity}</td>
+                <td>₹${(t.entryPrice || 0).toFixed(2)}</td>
+                <td>₹${(t.exitPrice || 0).toFixed(2)}</td>
+                <td style="font-weight: 700;" class="${isProfit ? 'profit' : 'loss'}">${pnlStr}</td>
+                <td><span style="font-size: 11px; padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,0.05);">${t.exitReason || 'CLOSED'}</span></td>
             `;
-            container.appendChild(card);
+            tbody.appendChild(tr);
         });
     }
 
