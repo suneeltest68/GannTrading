@@ -193,18 +193,23 @@ class PaperTradingEngine(
                 }
             }
             "EXITED" -> {
-                // Cooldown: enforce a mandatory 1-minute (60,000 ms) wait window after exit before re-entry evaluation
+                // Cooldown: enforce a mandatory 1-minute (60,000 ms) wait window after exit
                 val cooldownMillis = 60_000L
-                if (trade.exitTime > 0 && (ts - trade.exitTime) < cooldownMillis) {
+                val timeSinceExit = ts - trade.exitTime
+                if (trade.exitTime > 0 && timeSinceExit < cooldownMillis) {
                     return
                 }
 
+                // 1. First, require a dip below entry AFTER the cooldown period has expired
                 if (!trade.priceBelowEntrySeen && low < trade.entryPrice) {
                     trade.priceBelowEntrySeen = true
                     saveState()
+                    return // Wait for subsequent tick/candle to cross back up above entry
                 }
+
+                // 2. Then, trigger re-entry when price crosses back up to entry
                 if (trade.priceBelowEntrySeen && high >= trade.entryPrice) {
-                    val msg = "[RE-ENTRY TRIGGERED @ $now] $symbol re-opened at Buy Price: ${String.format("%.2f", trade.entryPrice)} | LTP: ${String.format("%.2f", high)}"
+                    val msg = "[RE-ENTRY TRIGGERED @ $now] $symbol re-opened at Buy Price: ${String.format("%.2f", trade.entryPrice)} | LTP: ${String.format("%.2f", trade.entryPrice)}"
                     logEvent(msg)
 
                     trade.status = "ACTIVE"
