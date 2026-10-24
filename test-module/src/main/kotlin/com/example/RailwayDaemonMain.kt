@@ -212,6 +212,13 @@ fun main() = runBlocking {
         println("🌅 [Daily Routine] Starting Trading Session...")
         println("--------------------------------------------------")
 
+        val nowCheck = ZonedDateTime.now(istZone)
+        val marketCloseToday = nowCheck.withHour(15).withMinute(35).withSecond(0).withNano(0)
+        if (nowCheck.isAfter(marketCloseToday)) {
+            println("[Daemon] Current time ($nowCheck) is past market close (3:35 PM IST). Skipping trading session and sleeping until tomorrow 9:00 AM IST...")
+            continue
+        }
+
         // Clear old token at 9:00 AM IST trigger so live trading never uses cached tokens
         viewModel.clearToken()
 
