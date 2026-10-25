@@ -34,24 +34,24 @@ class TradingWorkflowService(private val viewModel: AuthViewModel) {
 
     private suspend fun waitForMarketOpen() {
         val istZone = ZoneId.of("Asia/Kolkata")
-        val marketOpenTime = LocalTime.of(9, 15)
+        val marketOpenTime = LocalTime.of(9, 20)
 
         while (true) {
             val now = LocalTime.now(istZone)
             if (now.isAfter(marketOpenTime) || now == marketOpenTime) {
-                println("[Market Open] It is 9:15 AM IST or later ($now). Proceeding with trading workflow...")
+                println("[Market Open] It is 9:20 AM IST or later ($now). Proceeding with trading workflow...")
                 break
             }
 
             val waitDurationMillis = Duration.between(now, marketOpenTime).toMillis()
-            println("[Waiting] Current time (IST): $now. Waiting until market open at 9:15 AM IST (${waitDurationMillis / 1000} seconds remaining)...")
+            println("[Waiting] Current time (IST): $now. Waiting until market open at 9:20 AM IST (${waitDurationMillis / 1000} seconds remaining)...")
             
             delay(minOf(waitDurationMillis, 30_000L))
         }
     }
 
     suspend fun executeCurrentExpiryWorkflow(appId: String, token: String) {
-        // Wait until 9:15 AM IST before fetching opening data and starting workflow
+        // Wait until 9:20 AM IST before fetching opening data and starting workflow
         waitForMarketOpen()
 
         // Use today's date in IST

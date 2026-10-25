@@ -83,8 +83,8 @@ class PaperTradingEngine(
         val istZone = ZoneId.of("Asia/Kolkata")
         val now = testTime ?: LocalTime.now(istZone)
 
-        // Do not process order placement or trade triggers before 9:15 AM IST
-        val marketTradingStart = LocalTime.of(9, 15)
+        // Do not process order placement or trade triggers before 9:20 AM IST
+        val marketTradingStart = LocalTime.of(9, 20)
         if (now.isBefore(marketTradingStart)) {
             return
         }
@@ -224,7 +224,7 @@ class PaperTradingEngine(
     }
 
     private fun triggerActiveEntry(symbol: String, trade: TradeState, now: LocalTime, ts: Long) {
-        val marketTradingStart = LocalTime.of(9, 16)
+        val marketTradingStart = LocalTime.of(9, 20)
         if (now.isBefore(marketTradingStart)) {
             return
         }
