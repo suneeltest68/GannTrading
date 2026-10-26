@@ -4,6 +4,7 @@ import com.example.model.GannLevels
 import com.example.model.TradeState
 import org.json.JSONObject
 import java.io.File
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -72,6 +73,47 @@ class PaperTradingEngine(
         }
     }
 
+    private fun formatEntryMessage(symbol: String, entryPrice: Double, quantity: Int, dateStr: String, timeStr: String): String {
+        return """
+            🚀 ENTRY · GANN
+            Direction: LONG
+            Instrument: BUY $symbol
+              Entry: ₹${String.format("%.2f", entryPrice)}
+            Qty: $quantity
+            [PAPER] $dateStr $timeStr IST
+        """.trimIndent()
+    }
+
+    private fun formatExitMessage(symbol: String, exitType: String, entryPrice: Double, exitPrice: Double, quantity: Int, pnl: Double, dateStr: String, timeStr: String): String {
+        val emoji = when {
+            pnl > 0 -> "🟢"
+            pnl < 0 -> "🔴"
+            else -> "⚪"
+        }
+        val pnlSign = if (pnl > 0) "+₹" else if (pnl < 0) "-₹" else "₹"
+        val pnlFormatted = "$pnlSign${String.format("%.2f", kotlin.math.abs(pnl))}"
+
+        return """
+            🏁 EXIT · GANN ($exitType)
+            Direction: LONG
+            Instrument: SELL $symbol
+              Entry: ₹${String.format("%.2f", entryPrice)} → Exit: ₹${String.format("%.2f", exitPrice)}
+            Qty: $quantity
+            $emoji P&L: $pnlFormatted
+            [PAPER] $dateStr $timeStr IST
+        """.trimIndent()
+    }
+
+    private fun formatReEntryMessage(symbol: String, entryPrice: Double, dateStr: String, timeStr: String): String {
+        return """
+            🔄 RE-ENTRY · GANN
+            Direction: LONG
+            Instrument: BUY $symbol
+              Buy Price: ₹${String.format("%.2f", entryPrice)}
+            [PAPER] $dateStr $timeStr IST
+        """.trimIndent()
+    }
+
     fun onTick(symbol: String, ltp: Double, testTime: LocalTime? = null, testTimestamp: Long = 0L) {
         onCandleTick(symbol, ltp, ltp, ltp, ltp, testTime, testTimestamp)
     }
@@ -84,6 +126,7 @@ class PaperTradingEngine(
         val istZone = ZoneId.of("Asia/Kolkata")
         val now = testTime ?: LocalTime.now(istZone)
         val timeStr = now.format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        val dateStr = LocalDate.now(istZone).toString()
 
         // Do not process order placement or trade triggers before 9:20 AM IST
         val marketTradingStart = LocalTime.of(9, 20)
@@ -96,7 +139,7 @@ class PaperTradingEngine(
             try {
                 if (trade.status == "ACTIVE") {
                     val pnl = (close - trade.entryPrice) * trade.quantity
-                    val msg = "[AUTO SQUARE-OFF @ $timeStr] $symbol | Exit: ₹${String.format("%.2f", close)} | P&L: ₹${String.format("%.2f", pnl)}"
+                    val msg = formatExitMessage(symbol, "AUTO_SQUARE_OFF", trade.entryPrice, close, trade.quantity, pnl, dateStr, timeStr)
                     logEvent(msg)
                     
                     trade.exitTime = ts
@@ -118,26 +161,26 @@ class PaperTradingEngine(
                     trade.status = "PENDING_LIMIT"
                     saveState()
                     if (low <= trade.entryPrice) {
-                        triggerActiveEntry(symbol, trade, now, ts, timeStr)
+                        triggerActiveEntry(symbol, trade, now, ts, timeStr, dateStr)
                     }
                 } else if (open < trade.entryPrice) {
                     trade.status = "PENDING_STOP_BUY"
                     saveState()
                     if (high >= trade.entryPrice) {
-                        triggerActiveEntry(symbol, trade, now, ts, timeStr)
+                        triggerActiveEntry(symbol, trade, now, ts, timeStr, dateStr)
                     }
                 } else {
-                    triggerActiveEntry(symbol, trade, now, ts, timeStr)
+                    triggerActiveEntry(symbol, trade, now, ts, timeStr, dateStr)
                 }
             }
             "PENDING_LIMIT" -> {
                 if (low <= trade.entryPrice) {
-                    triggerActiveEntry(symbol, trade, now, ts, timeStr)
+                    triggerActiveEntry(symbol, trade, now, ts, timeStr, dateStr)
                 }
             }
             "PENDING_STOP_BUY" -> {
                 if (high >= trade.entryPrice) {
-                    triggerActiveEntry(symbol, trade, now, ts, timeStr)
+                    triggerActiveEntry(symbol, trade, now, ts, timeStr, dateStr)
                 }
             }
             "ACTIVE" -> {
@@ -152,6 +195,8 @@ class PaperTradingEngine(
                                 trade.quantity -= exitQty
                                 trade.partialExitTaken = true
                                 val partialPnl = (nextTarget - trade.entryPrice) * exitQty
+                                val msg = formatExitMessage(symbol, "PARTIAL_TP1", trade.entryPrice, nextTarget, exitQty, partialPnl, dateStr, timeStr)
+                                logEvent(msg)
                                 recordTrade(TradeJournalEntry(symbol, trade.entryPrice, nextTarget, exitQty, partialPnl, "PARTIAL_TP1", entryTime = trade.entryTime, exitTime = ts, tpLevel = 1, stopLoss = trade.entryPrice, initialStopLoss = trade.initialStopLoss, targets = trade.targets))
                             }
                             trade.stopLoss = trade.entryPrice
@@ -174,13 +219,7 @@ class PaperTradingEngine(
                             else -> "TRAILING_SL"
                         }
 
-                        val tag = when (exitType) {
-                            "ACTUAL_SL" -> "ACTUAL SL HIT"
-                            "COST_TO_COST" -> "COST TO COST (C2C) SL HIT"
-                            else -> "TRAILING SL HIT"
-                        }
-
-                        val msg = "[$tag @ $timeStr] $symbol | Entry: ₹${String.format("%.2f", trade.entryPrice)} | SL: ₹${String.format("%.2f", trade.stopLoss)} | P&L: ₹${String.format("%.2f", pnl)}"
+                        val msg = formatExitMessage(symbol, exitType, trade.entryPrice, trade.stopLoss, trade.quantity, pnl, dateStr, timeStr)
                         logEvent(msg)
 
                         trade.exitTime = ts
@@ -212,7 +251,7 @@ class PaperTradingEngine(
 
                 // 2. Then, trigger re-entry when price crosses back up to entry
                 if (trade.priceBelowEntrySeen && high >= trade.entryPrice) {
-                    val msg = "[RE-ENTRY @ $timeStr] $symbol | Buy Price: ₹${String.format("%.2f", trade.entryPrice)}"
+                    val msg = formatReEntryMessage(symbol, trade.entryPrice, dateStr, timeStr)
                     logEvent(msg)
 
                     trade.status = "ACTIVE"
@@ -226,13 +265,13 @@ class PaperTradingEngine(
         }
     }
 
-    private fun triggerActiveEntry(symbol: String, trade: TradeState, now: LocalTime, ts: Long, timeStr: String) {
+    private fun triggerActiveEntry(symbol: String, trade: TradeState, now: LocalTime, ts: Long, timeStr: String, dateStr: String) {
         val marketTradingStart = LocalTime.of(9, 20)
         if (now.isBefore(marketTradingStart)) {
             return
         }
 
-        val msg = "[TRADE PLACED @ $timeStr] $symbol | Entry: ₹${String.format("%.2f", trade.entryPrice)} | Qty: ${trade.quantity}"
+        val msg = formatEntryMessage(symbol, trade.entryPrice, trade.quantity, dateStr, timeStr)
         logEvent(msg)
 
         trade.status = "ACTIVE"
