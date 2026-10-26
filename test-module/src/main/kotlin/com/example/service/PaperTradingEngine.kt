@@ -259,6 +259,8 @@ class PaperTradingEngine(
                     trade.currentTpLevel = 0
                     trade.entryTime = ts
                     trade.priceBelowEntrySeen = false
+                    trade.quantity = quantitiesMap[symbol] ?: trade.quantity
+                    trade.partialExitTaken = false
                     saveState()
                 }
             }
