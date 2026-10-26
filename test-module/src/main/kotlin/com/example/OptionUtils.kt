@@ -134,14 +134,30 @@ object OptionUtils {
             throw IllegalStateException("Invalid month number $monthNum in expiry date $expiryDateStr")
         }
 
-        val targetExpiryCode = "$shortYear$monthCode$day"
-        val underlyingPrefix = when {
-            indexSymbol.contains("BANKNIFTY", ignoreCase = true) || indexSymbol.contains("NIFTYBANK", ignoreCase = true) -> "NSE:BANKNIFTY"
-            indexSymbol.contains("SENSEX", ignoreCase = true) -> "BSE:SENSEX"
-            else -> "NSE:NIFTY"
+        val monthAbbr = when (monthNum) {
+            "01" -> "JAN"
+            "02" -> "FEB"
+            "03" -> "MAR"
+            "04" -> "APR"
+            "05" -> "MAY"
+            "06" -> "JUN"
+            "07" -> "JUL"
+            "08" -> "AUG"
+            "09" -> "SEP"
+            "10" -> "OCT"
+            "11" -> "NOV"
+            "12" -> "DEC"
+            else -> ""
         }
 
-        // First attempt: Search optionsChain array for exact matching contract with targetExpiryCode or isoDate
+        if (monthCode.isEmpty()) {
+            throw IllegalStateException("Invalid month number $monthNum in expiry date $expiryDateStr")
+        }
+
+        val weeklyExpiryCode = "$shortYear$monthCode$day"
+        val monthlyExpiryCode = "$shortYear$monthAbbr"
+
+        // First attempt: Search optionsChain array for exact matching contract with expiry codes or isoDate
         if (optionChain.has("data")) {
             val dataObj = optionChain.getJSONObject("data")
             val optionsArray = dataObj.optJSONArray("optionsChain") ?: dataObj.optJSONArray("options")
@@ -155,7 +171,7 @@ object OptionUtils {
 
                     val isStrikeMatch = abs(strike - atmStrike.toDouble()) < 1.0
                     val isTypeMatch = type.equals(optionType, ignoreCase = true) || symbol.endsWith(optionType)
-                    val isExpiryMatch = symbol.contains(targetExpiryCode) ||
+                    val isExpiryMatch = symbol.contains(weeklyExpiryCode) || symbol.contains(monthlyExpiryCode) ||
                             (optExpiry.isNotEmpty() && (optExpiry == isoDate || optExpiry == expiryDateStr || optExpiry.contains(isoDate)))
 
                     if (isStrikeMatch && isTypeMatch && isExpiryMatch && symbol.isNotEmpty()) {
@@ -165,7 +181,7 @@ object OptionUtils {
             }
         }
 
-        return ResolvedOption("$underlyingPrefix$targetExpiryCode$atmStrike$optionType", isoDate)
+        return ResolvedOption(buildFyersOptionSymbol(indexSymbol, isoDate, atmStrike, optionType), isoDate)
     }
 
     /**
@@ -185,8 +201,8 @@ object OptionUtils {
         val strikeInterval = if (indexSymbol.contains("BANKNIFTY", ignoreCase = true) || indexSymbol.contains("NIFTYBANK", ignoreCase = true) || indexSymbol.contains("SENSEX", ignoreCase = true)) 100 else 50
         val atmStrike = calculateAtmStrike(spotPrice, strikeInterval)
 
-        val rangeFrom = "2026-09-06"
-        val rangeTo = "2026-10-13"
+        val rangeFrom = LocalDate.parse(tradeDate).minusMonths(1).toString()
+        val rangeTo = LocalDate.parse(tradeDate).plusDays(7).toString()
 
         val expiryJson = viewModel.fetchHistoryExpiryDates(appId, token, indexSymbol, rangeFrom, rangeTo)
 
@@ -205,7 +221,6 @@ object OptionUtils {
                 allExpiries.add(optionsExpiriesArr.getString(i))
             }
         }
-        allExpiries.addAll(getFallbackExpiries(indexSymbol))
 
         val validExpiries = allExpiries.filter { it >= tradeDate }.distinct().sorted()
         targetExpiry = if (expiryIndex in validExpiries.indices) {
@@ -235,13 +250,7 @@ object OptionUtils {
         }
 
         if (optionSymbol.isEmpty()) {
-            val underlyingPrefix = when {
-                indexSymbol.contains("BANKNIFTY", ignoreCase = true) || indexSymbol.contains("NIFTYBANK", ignoreCase = true) -> "NSE:BANKNIFTY"
-                indexSymbol.contains("SENSEX", ignoreCase = true) -> "BSE:SENSEX"
-                else -> "NSE:NIFTY"
-            }
-            val expiryCode = convertDateToExpiryCode(targetExpiry)
-            optionSymbol = "$underlyingPrefix$expiryCode$atmStrike$optionType"
+            optionSymbol = buildFyersOptionSymbol(indexSymbol, targetExpiry, atmStrike, optionType)
         }
 
         val fnoHistory = viewModel.fetchHistoryFNOExpired(
@@ -250,7 +259,7 @@ object OptionUtils {
             fnoSymbol = optionSymbol,
             rangeFrom = tradeDate,
             rangeTo = tradeDate,
-            resolution = "1"
+            resolution = "5S"
         )
 
         if (fnoHistory == null || !fnoHistory.has("candles") || fnoHistory.optJSONArray("candles")?.length() == 0) {
@@ -261,47 +270,35 @@ object OptionUtils {
         return ExpiredDerivativeResult(optionSymbol, targetExpiry, parsed)
     }
 
-    private fun convertDateToExpiryCode(dateStr: String): String {
-        if (dateStr.length < 10) return dateStr
-        val year = dateStr.substring(0, 4)
+    private fun buildFyersOptionSymbol(indexSymbol: String, targetExpiry: String, atmStrike: Int, optionType: String): String {
+        val underlyingPrefix = when {
+            indexSymbol.contains("BANKNIFTY", ignoreCase = true) || indexSymbol.contains("NIFTYBANK", ignoreCase = true) -> "NSE:BANKNIFTY"
+            indexSymbol.contains("SENSEX", ignoreCase = true) -> "BSE:SENSEX"
+            else -> "NSE:NIFTY"
+        }
+        if (targetExpiry.length < 10) return "$underlyingPrefix$targetExpiry$atmStrike$optionType"
+
+        val year = targetExpiry.substring(0, 4)
         val shortYear = year.substring(2, 4)
-        val month = dateStr.substring(5, 7)
-        val day = dateStr.substring(8, 10)
+        val month = targetExpiry.substring(5, 7)
 
-        val monthCode = when (month) {
-            "01" -> "1"
-            "02" -> "2"
-            "03" -> "3"
-            "04" -> "4"
-            "05" -> "5"
-            "06" -> "6"
-            "07" -> "7"
-            "08" -> "8"
-            "09" -> "9"
-            "10" -> "O"
-            "11" -> "N"
-            "12" -> "D"
-            else -> ""
+        val monthAbbr = when (month) {
+            "01" -> "JAN"
+            "02" -> "FEB"
+            "03" -> "MAR"
+            "04" -> "APR"
+            "05" -> "MAY"
+            "06" -> "JUN"
+            "07" -> "JUL"
+            "08" -> "AUG"
+            "09" -> "SEP"
+            "10" -> "OCT"
+            "11" -> "NOV"
+            "12" -> "DEC"
+            else -> "OCT"
         }
-        return "$shortYear$monthCode$day"
-    }
 
-    private fun getFallbackExpiries(indexSymbol: String): List<String> {
-        return if (indexSymbol.contains("SENSEX", ignoreCase = true)) {
-            listOf(
-                "2026-09-03", "2026-09-10", "2026-09-17", "2026-09-24",
-                "2026-10-01", "2026-10-08", "2026-10-15", "2026-10-22", "2026-10-29",
-                "2026-11-05", "2026-11-12", "2026-11-19", "2026-11-26",
-                "2026-12-03", "2026-12-10", "2026-12-17", "2026-12-24", "2026-12-31"
-            )
-        } else {
-            listOf(
-                "2026-09-01", "2026-09-08", "2026-09-15", "2026-09-22", "2026-09-29",
-                "2026-10-06", "2026-10-13", "2026-10-20", "2026-10-27",
-                "2026-11-03", "2026-11-10", "2026-11-17", "2026-11-24",
-                "2026-12-01", "2026-12-08", "2026-12-15", "2026-12-22", "2026-12-29"
-            )
-        }
+        return "$underlyingPrefix$shortYear$monthAbbr$atmStrike$optionType"
     }
 
     private fun parseExpiredCandles(json: JSONObject): List<Candle> {

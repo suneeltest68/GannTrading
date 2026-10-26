@@ -30,8 +30,8 @@ fun main() = runBlocking {
     val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: return@runBlocking
     println("[Cache/Auth] Using Access Token.")
 
-    val defaultStartDate = System.getenv("START_DATE") ?: "2026-10-19"
-    val defaultEndDate = System.getenv("END_DATE") ?: "2026-10-19"
+    val defaultStartDate = System.getenv("START_DATE") ?: "2026-10-01"
+    val defaultEndDate = System.getenv("END_DATE") ?: "2026-10-15"
 
     val startDate = LocalDate.parse(defaultStartDate)
     val endDate = LocalDate.parse(defaultEndDate)
@@ -100,8 +100,8 @@ fun main() = runBlocking {
                         )
                         derivativeSymbol = resolvedOpt.symbol
                         expiryDate = resolvedOpt.expiryDate
-                        val history = viewModel.fetchHistoricalDataInChunks(appId, token, derivativeSymbol, "1", backtestDate, backtestDate)
-                            ?: viewModel.fetchHistoricalData(appId, token, derivativeSymbol, "1", backtestDate, backtestDate)
+                        val history = viewModel.fetchHistoricalDataInChunks(appId, token, derivativeSymbol, "5S", backtestDate, backtestDate)
+                            ?: viewModel.fetchHistoricalData(appId, token, derivativeSymbol, "5S", backtestDate, backtestDate)
                         candlesList = parseCandlesFromHistory(history)
                     }
 
