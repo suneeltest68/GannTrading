@@ -11,5 +11,6 @@ data class TradeState(
     var quantity: Int = 0,
     var entryTime: Long = 0L,
     var exitTime: Long = 0L,
-    var priceBelowEntrySeen: Boolean = false
+    var priceBelowEntrySeen: Boolean = false,
+    var partialExitTaken: Boolean = false
 )

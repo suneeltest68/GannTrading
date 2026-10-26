@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.io.File
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -82,6 +83,7 @@ class PaperTradingEngine(
 
         val istZone = ZoneId.of("Asia/Kolkata")
         val now = testTime ?: LocalTime.now(istZone)
+        val timeStr = now.format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
         // Do not process order placement or trade triggers before 9:20 AM IST
         val marketTradingStart = LocalTime.of(9, 20)
@@ -94,7 +96,7 @@ class PaperTradingEngine(
             try {
                 if (trade.status == "ACTIVE") {
                     val pnl = (close - trade.entryPrice) * trade.quantity
-                    val msg = "[AUTO SQUARE-OFF @ $now] 3:25 PM EOD reached! Force exiting $symbol at LTP ${String.format("%.2f", close)} | P&L: ${String.format("%.2f", pnl)}"
+                    val msg = "[AUTO SQUARE-OFF @ $timeStr] $symbol | Exit: ₹${String.format("%.2f", close)} | P&L: ₹${String.format("%.2f", pnl)}"
                     logEvent(msg)
                     
                     trade.exitTime = ts
@@ -116,26 +118,26 @@ class PaperTradingEngine(
                     trade.status = "PENDING_LIMIT"
                     saveState()
                     if (low <= trade.entryPrice) {
-                        triggerActiveEntry(symbol, trade, now, ts)
+                        triggerActiveEntry(symbol, trade, now, ts, timeStr)
                     }
                 } else if (open < trade.entryPrice) {
                     trade.status = "PENDING_STOP_BUY"
                     saveState()
                     if (high >= trade.entryPrice) {
-                        triggerActiveEntry(symbol, trade, now, ts)
+                        triggerActiveEntry(symbol, trade, now, ts, timeStr)
                     }
                 } else {
-                    triggerActiveEntry(symbol, trade, now, ts)
+                    triggerActiveEntry(symbol, trade, now, ts, timeStr)
                 }
             }
             "PENDING_LIMIT" -> {
                 if (low <= trade.entryPrice) {
-                    triggerActiveEntry(symbol, trade, now, ts)
+                    triggerActiveEntry(symbol, trade, now, ts, timeStr)
                 }
             }
             "PENDING_STOP_BUY" -> {
                 if (high >= trade.entryPrice) {
-                    triggerActiveEntry(symbol, trade, now, ts)
+                    triggerActiveEntry(symbol, trade, now, ts, timeStr)
                 }
             }
             "ACTIVE" -> {
@@ -145,9 +147,10 @@ class PaperTradingEngine(
                     if (high >= nextTarget) {
                         trade.currentTpLevel++
                         if (trade.currentTpLevel == 1) {
-                            if (enablePartialExit && trade.quantity >= 2) {
+                            if (enablePartialExit && trade.quantity >= 2 && !trade.partialExitTaken) {
                                 val exitQty = trade.quantity / 2
                                 trade.quantity -= exitQty
+                                trade.partialExitTaken = true
                                 val partialPnl = (nextTarget - trade.entryPrice) * exitQty
                                 recordTrade(TradeJournalEntry(symbol, trade.entryPrice, nextTarget, exitQty, partialPnl, "PARTIAL_TP1", entryTime = trade.entryTime, exitTime = ts, tpLevel = 1, stopLoss = trade.entryPrice, initialStopLoss = trade.initialStopLoss, targets = trade.targets))
                             }
@@ -177,7 +180,7 @@ class PaperTradingEngine(
                             else -> "TRAILING SL HIT"
                         }
 
-                        val msg = "[$tag @ $now] $symbol | Entry: ${String.format("%.2f", trade.entryPrice)} | SL: ${String.format("%.2f", trade.stopLoss)} | TP Level: ${trade.currentTpLevel} | LTP: ${String.format("%.2f", low)} | Est P&L: ${String.format("%.2f", pnl)}"
+                        val msg = "[$tag @ $timeStr] $symbol | Entry: ₹${String.format("%.2f", trade.entryPrice)} | SL: ₹${String.format("%.2f", trade.stopLoss)} | P&L: ₹${String.format("%.2f", pnl)}"
                         logEvent(msg)
 
                         trade.exitTime = ts
@@ -209,7 +212,7 @@ class PaperTradingEngine(
 
                 // 2. Then, trigger re-entry when price crosses back up to entry
                 if (trade.priceBelowEntrySeen && high >= trade.entryPrice) {
-                    val msg = "[RE-ENTRY TRIGGERED @ $now] $symbol re-opened at Buy Price: ${String.format("%.2f", trade.entryPrice)} | LTP: ${String.format("%.2f", trade.entryPrice)}"
+                    val msg = "[RE-ENTRY @ $timeStr] $symbol | Buy Price: ₹${String.format("%.2f", trade.entryPrice)}"
                     logEvent(msg)
 
                     trade.status = "ACTIVE"
@@ -223,13 +226,13 @@ class PaperTradingEngine(
         }
     }
 
-    private fun triggerActiveEntry(symbol: String, trade: TradeState, now: LocalTime, ts: Long) {
+    private fun triggerActiveEntry(symbol: String, trade: TradeState, now: LocalTime, ts: Long, timeStr: String) {
         val marketTradingStart = LocalTime.of(9, 20)
         if (now.isBefore(marketTradingStart)) {
             return
         }
 
-        val msg = "[TRADE PLACED @ $now] $symbol at Entry: ${String.format("%.2f", trade.entryPrice)} | Qty: ${trade.quantity}"
+        val msg = "[TRADE PLACED @ $timeStr] $symbol | Entry: ₹${String.format("%.2f", trade.entryPrice)} | Qty: ${trade.quantity}"
         logEvent(msg)
 
         trade.status = "ACTIVE"
@@ -274,7 +277,8 @@ class PaperTradingEngine(
                         currentTpLevel = obj.getInt("currentTpLevel"),
                         quantity = obj.getInt("quantity"),
                         entryTime = obj.getLong("entryTime"),
-                        priceBelowEntrySeen = obj.optBoolean("priceBelowEntrySeen", false)
+                        priceBelowEntrySeen = obj.optBoolean("priceBelowEntrySeen", false),
+                        partialExitTaken = obj.optBoolean("partialExitTaken", false)
                     )
                     tradesMap[trade.symbol] = trade
                 }
@@ -295,6 +299,7 @@ class PaperTradingEngine(
                     put("quantity", trade.quantity)
                     put("entryTime", trade.entryTime)
                     put("priceBelowEntrySeen", trade.priceBelowEntrySeen)
+                    put("partialExitTaken", trade.partialExitTaken)
                 }
                 json.put(symbol, obj)
             }
