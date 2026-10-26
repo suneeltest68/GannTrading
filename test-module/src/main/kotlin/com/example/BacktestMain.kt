@@ -8,6 +8,7 @@ import com.example.service.TradeJournalEntry
 import com.example.OptionUtils
 import com.example.util.TablePrinter
 import org.json.JSONObject
+import org.json.JSONArray
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.runBlocking
 import java.time.DayOfWeek
@@ -30,8 +31,8 @@ fun main() = runBlocking {
     val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: return@runBlocking
     println("[Cache/Auth] Using Access Token.")
 
-    val defaultStartDate = System.getenv("START_DATE") ?: "2026-10-01"
-    val defaultEndDate = System.getenv("END_DATE") ?: "2026-10-15"
+    val defaultStartDate = System.getenv("START_DATE") ?: "2026-10-26"
+    val defaultEndDate = System.getenv("END_DATE") ?: "2026-10-26"
 
     val startDate = LocalDate.parse(defaultStartDate)
     val endDate = LocalDate.parse(defaultEndDate)
@@ -209,7 +210,7 @@ fun parseCandlesFromHistory(json: JSONObject?): List<Candle> {
 
 fun printDetailedBacktestReport(dateStr: String, trades: List<TradeJournalEntry>, cumulativePnl: Double) {
     val dayPnl = trades.sumOf { it.pnl }
-    val headers = listOf("Trade #", "Status", "Time Range", "Symbol", "Entry", "Exit", "Exit Reason", "TP Level", "P&L")
+    val headers = listOf("Trade #", "Status", "Time Range", "Symbol", "Qty", "Entry", "Exit", "Exit Reason", "TP Level", "P&L")
 
     val sortedTrades = trades.sortedWith(compareBy({ it.entryTime }, { it.exitTime }))
     val tradeNumberMap = mutableMapOf<Pair<Long, String>, Int>()
@@ -228,6 +229,7 @@ fun printDetailedBacktestReport(dateStr: String, trades: List<TradeJournalEntry>
             emoji,
             "$entryTimeStr ➜ $exitTimeStr",
             t.symbol,
+            t.quantity.toString(),
             String.format("%.2f", t.entryPrice),
             String.format("%.2f", t.exitPrice),
             t.exitReason,
@@ -269,4 +271,124 @@ fun printOverallBacktestSummary(trades: List<TradeJournalEntry>) {
         listOf("Auto Square-Off (EOD)", autoSquareOffCount)
     )
     TablePrinter.printTable("OVERALL MULTI-DAY BACKTEST SUMMARY REPORT", headers, rows)
+}
+
+suspend fun runBackendBacktest(viewModel: AuthViewModel, appId: String, token: String, indexFilter: String, startDateStr: String, endDateStr: String): JSONObject {
+    val allTrades = mutableListOf<TradeJournalEntry>()
+    val startDate = LocalDate.parse(startDateStr)
+    val endDate = LocalDate.parse(endDateStr)
+    var currentDate = startDate
+
+    val indices = when {
+        indexFilter.contains("Sensex", ignoreCase = true) -> listOf(Triple("Sensex", "BSE:SENSEX-INDEX", 100.0))
+        indexFilter.contains("Bank", ignoreCase = true) -> listOf(Triple("Bank Nifty", "NSE:NIFTYBANK-INDEX", 100.0))
+        else -> listOf(Triple("Nifty 50", "NSE:NIFTY50-INDEX", 50.0))
+    }
+
+    while (!currentDate.isAfter(endDate)) {
+        if (currentDate.dayOfWeek == DayOfWeek.SATURDAY || currentDate.dayOfWeek == DayOfWeek.SUNDAY) {
+            currentDate = currentDate.plusDays(1)
+            continue
+        }
+
+        val backtestDate = currentDate.toString()
+        val symbolsGannMap = mutableMapOf<String, GannLevels>()
+        val quantitiesMap = mutableMapOf<String, Int>()
+        val symbolCandlesMap = mutableMapOf<String, List<CandleTick>>()
+
+        try {
+            for ((indexName, indexSymbol, strikeStep) in indices) {
+                val indexHistory = viewModel.fetchHistoricalData(appId, token, indexSymbol, "D", backtestDate, backtestDate, false)
+                val openPrice = indexHistory?.optJSONArray("candles")?.optJSONArray(0)?.optDouble(1, 0.0) ?: 0.0
+                if (openPrice <= 0.0) continue
+
+                val priorDate = getLatestTradingDay(viewModel, appId, token, indexSymbol, backtestDate)
+
+                for (optionType in listOf("CE", "PE")) {
+                    val isHistorical = LocalDate.parse(backtestDate).isBefore(LocalDate.now().minusDays(7))
+                    val derivativeSymbol: String
+                    val candlesList: List<Candle>
+
+                    if (isHistorical) {
+                        val expiredRes = OptionUtils.resolveAndFetchExpiredDerivativeCandles(
+                            viewModel = viewModel, appId = appId, token = token,
+                            indexSymbol = indexSymbol, spotPrice = openPrice,
+                            optionType = optionType, tradeDate = backtestDate, expiryIndex = 0
+                        )
+                        derivativeSymbol = expiredRes.symbol
+                        candlesList = expiredRes.candles
+                    } else {
+                        val resolvedOpt = OptionUtils.resolveWeeklyOptionWithExpiry(
+                            viewModel = viewModel, appId = appId, token = token,
+                            indexSymbol = indexSymbol, spotPrice = openPrice,
+                            optionType = optionType, expiryIndex = 0
+                        )
+                        derivativeSymbol = resolvedOpt.symbol
+                        val history = viewModel.fetchHistoricalDataInChunks(appId, token, derivativeSymbol, "5S", backtestDate, backtestDate)
+                            ?: viewModel.fetchHistoricalData(appId, token, derivativeSymbol, "5S", backtestDate, backtestDate)
+                        candlesList = parseCandlesFromHistory(history)
+                    }
+
+                    if (derivativeSymbol.isEmpty() || candlesList.isEmpty()) continue
+
+                    val firstOpen = candlesList.firstOrNull()?.open ?: 0.0
+                    val gann = fetchGannForSymbol(viewModel, appId, token, derivativeSymbol, priorDate, firstOpen)
+                    symbolsGannMap[derivativeSymbol] = gann
+                    quantitiesMap[derivativeSymbol] = if (indexName.contains("Bank")) 60 else if (indexName.contains("Sensex")) 40 else 130
+
+                    symbolCandlesMap[derivativeSymbol] = candlesList.map { c ->
+                        val time = LocalDateTime.parse(c.timestamp, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")).toLocalTime()
+                        CandleTick(derivativeSymbol, c.epoch, time, c.open, c.high, c.low, c.close)
+                    }
+                }
+            }
+
+            if (symbolsGannMap.isNotEmpty()) {
+                val dayTrades = mutableListOf<TradeJournalEntry>()
+                val engine = PaperTradingEngine(symbolsGannMap, quantitiesMap).apply {
+                    onTradeCompleted = { trade -> dayTrades.add(trade) }
+                }
+
+                val allTicks = symbolCandlesMap.values.flatten().sortedBy { it.timestamp }
+                for (tick in allTicks) {
+                    engine.onCandleTick(tick.symbol, tick.openPrice, tick.highPrice, tick.lowPrice, tick.closePrice, tick.time, tick.timestamp * 1000)
+                }
+                allTrades.addAll(dayTrades)
+            }
+        } catch (_: Exception) {}
+
+        currentDate = currentDate.plusDays(1)
+    }
+
+    val tradesArray = JSONArray()
+    var cumulativePnl = 0.0
+    var wins = 0
+    var losses = 0
+
+    allTrades.forEach { t ->
+        cumulativePnl += t.pnl
+        if (t.pnl > 0) wins++ else if (t.pnl < 0) losses++
+        tradesArray.put(JSONObject().apply {
+            put("symbol", t.symbol)
+            put("entryPrice", t.entryPrice)
+            put("exitPrice", t.exitPrice)
+            put("quantity", t.quantity)
+            put("pnl", t.pnl)
+            put("exitReason", t.exitReason)
+            put("date", t.date)
+            put("timestamp", t.timestamp)
+            put("entryTime", t.entryTime)
+            put("exitTime", t.exitTime)
+        })
+    }
+
+    return JSONObject().apply {
+        put("trades", tradesArray)
+        put("stats", JSONObject().apply {
+            put("cumulativePnl", cumulativePnl)
+            put("totalTrades", allTrades.size)
+            put("winningTrades", wins)
+            put("losingTrades", losses)
+        })
+    }
 }

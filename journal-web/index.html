@@ -637,6 +637,9 @@
         <button class="tab-btn" onclick="switchTab('analytics')">
             <span class="material-icons">analytics</span> Analytics
         </button>
+        <button class="tab-btn" onclick="switchTab('backtest')">
+            <span class="material-icons">science</span> Backtest
+        </button>
     </div>
 
     <!-- Header Banner & Live Status -->
@@ -797,6 +800,90 @@
             <div class="day-header">Fri</div>
             <div class="day-header">Sat</div>
             <div class="day-header">Sun</div>
+        </div>
+    </div>
+
+    <!-- SECTION: BACKTEST -->
+    <div id="section-backtest" class="section">
+        <div class="trade-tape-card" style="margin-bottom: 24px;">
+            <div class="trade-tape-header">
+                <span class="trade-tape-title">Backtest Strategy Runner</span>
+            </div>
+            <div style="margin-bottom: 16px; color: var(--md-sys-color-on-surface-variant); font-size: 14px;">
+                Run historical backtests with 5-second candle resolution, Gann levels, 1-minute cooldown, and 1-lot partial exits.
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                <div>
+                    <label style="display: block; font-size: 12px; color: var(--md-sys-color-on-surface-variant); margin-bottom: 6px; text-transform: uppercase;">Select Index</label>
+                    <select id="backtest-index" style="width: 100%; background: var(--md-sys-color-surface-variant); border: 1px solid var(--card-border); color: #fff; padding: 12px; border-radius: 12px; font-size: 14px;">
+                        <option value="Sensex">Sensex (BSE:SENSEX-INDEX)</option>
+                        <option value="Nifty 50">Nifty 50 (NSE:NIFTY50-INDEX)</option>
+                        <option value="Bank Nifty">Bank Nifty (NSE:NIFTYBANK-INDEX)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display: block; font-size: 12px; color: var(--md-sys-color-on-surface-variant); margin-bottom: 6px; text-transform: uppercase;">Start Date</label>
+                    <input type="date" id="backtest-start" style="width: 100%; background: var(--md-sys-color-surface-variant); border: 1px solid var(--card-border); color: #fff; padding: 11px 12px; border-radius: 12px; font-size: 14px;" />
+                </div>
+                <div>
+                    <label style="display: block; font-size: 12px; color: var(--md-sys-color-on-surface-variant); margin-bottom: 6px; text-transform: uppercase;">End Date</label>
+                    <input type="date" id="backtest-end" style="width: 100%; background: var(--md-sys-color-surface-variant); border: 1px solid var(--card-border); color: #fff; padding: 11px 12px; border-radius: 12px; font-size: 14px;" />
+                </div>
+            </div>
+            <button onclick="runBacktest()" style="background: #00E5FF; color: #0A0A0C; border: none; padding: 14px 28px; border-radius: 14px; font-weight: 700; font-size: 14px; cursor: pointer; transition: opacity 0.2s;">RUN BACKTEST</button>
+            <div id="backtest-status" style="margin-top: 12px; font-size: 13px; color: var(--md-sys-color-success);"></div>
+        </div>
+
+        <!-- Backtest Results Metrics Cards -->
+        <div class="stats-grid" id="backtest-stats-grid" style="margin-bottom: 24px; display: none;">
+            <div class="stat-card">
+                <h3>Date Range</h3>
+                <p class="value" id="bt-date-range" style="font-size: 16px;">-</p>
+            </div>
+            <div class="stat-card">
+                <h3>Option Trades</h3>
+                <p class="value" id="bt-total-trades">0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Wins / Losses</h3>
+                <p class="value" id="bt-winloss">0 / 0</p>
+            </div>
+            <div class="stat-card">
+                <h3>Win Rate</h3>
+                <p class="value" id="bt-winrate">0.00%</p>
+            </div>
+            <div class="stat-card">
+                <h3>Gross P&L</h3>
+                <p class="value" id="bt-gross-pnl">₹0.00</p>
+            </div>
+        </div>
+
+        <!-- Backtest Trades Table matching user reference 2 -->
+        <div class="trade-tape-card" id="backtest-table-card" style="display: none;">
+            <div class="trade-tape-header">
+                <span class="trade-tape-title">Backtest Trades</span>
+                <span class="fills-badge" id="bt-trades-count">0 TRADES</span>
+            </div>
+            <div class="table-responsive">
+                <table class="trade-tape-table">
+                    <thead>
+                        <tr>
+                            <th>ENTRY</th>
+                            <th>EXIT</th>
+                            <th>SIDE</th>
+                            <th>OPTION</th>
+                            <th>QTY</th>
+                            <th>ENTRY ₹</th>
+                            <th>EXIT ₹</th>
+                            <th>P&L ₹</th>
+                            <th>REASON</th>
+                        </tr>
+                    </thead>
+                    <tbody id="backtest-tbody">
+                        <!-- Backtest trades inserted here -->
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -1259,7 +1346,85 @@
         return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     }
 
+    async function runBacktest() {
+        const indexVal = document.getElementById('backtest-index').value;
+        const startDate = document.getElementById('backtest-start').value;
+        const endDate = document.getElementById('backtest-end').value;
+        const statusEl = document.getElementById('backtest-status');
+
+        statusEl.textContent = `Running actual backend backtest for ${indexVal} (${startDate} to ${endDate})...`;
+        statusEl.style.color = 'var(--md-sys-color-primary)';
+
+        try {
+            const res = await fetch(`/api/run-backtest?index=${encodeURIComponent(indexVal)}&start=${startDate}&end=${endDate}`);
+            if (!res.ok) throw new Error("Backtest API failed");
+            const data = await res.json();
+
+            statusEl.textContent = `${indexVal} backtest completed successfully.`;
+            statusEl.style.color = 'var(--md-sys-color-success)';
+            document.getElementById('backtest-stats-grid').style.display = 'grid';
+            document.getElementById('backtest-table-card').style.display = 'block';
+
+            const trades = data.trades || [];
+            const stats = data.stats || {};
+
+            document.getElementById('bt-date-range').textContent = `${startDate} → ${endDate}`;
+            document.getElementById('bt-total-trades').textContent = trades.length;
+
+            const wins = stats.winningTrades || 0;
+            const losses = stats.losingTrades || 0;
+            const grossPnl = stats.cumulativePnl || 0;
+
+            document.getElementById('bt-winloss').textContent = `${wins} / ${losses}`;
+            const winRate = trades.length > 0 ? (wins / trades.length) * 100 : 0;
+            document.getElementById('bt-winrate').textContent = winRate.toFixed(2) + '%';
+
+            const pnlEl = document.getElementById('bt-gross-pnl');
+            pnlEl.textContent = (grossPnl >= 0 ? '+₹' : '-₹') + Math.abs(grossPnl).toFixed(2);
+            pnlEl.className = 'value ' + (grossPnl >= 0 ? 'profit' : 'loss');
+
+            document.getElementById('bt-trades-count').textContent = `${trades.length} TRADES`;
+
+            const tbody = document.getElementById('backtest-tbody');
+            tbody.innerHTML = '';
+            if (trades.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--md-sys-color-on-surface-variant); padding: 40px;">No trades generated for this date range and index.</td></tr>`;
+                return;
+            }
+
+            trades.forEach(t => {
+                const entryTime = t.entryTime ? new Date(t.entryTime).toLocaleString() : (t.date + ' 09:30:00');
+                const exitTime = t.exitTime ? new Date(t.exitTime).toLocaleString() : (t.date + ' 15:25:00');
+                const isProfit = t.pnl >= 0;
+                const pnlStr = (isProfit ? '+₹' : '-₹') + Math.abs(t.pnl).toFixed(2);
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${entryTime}</td>
+                    <td>${exitTime}</td>
+                    <td style="color: var(--md-sys-color-primary); font-weight: 700;">ENTER_LONG</td>
+                    <td style="font-weight: 700;">${t.symbol}</td>
+                    <td>${t.quantity}</td>
+                    <td>₹${(t.entryPrice || 0).toFixed(2)}</td>
+                    <td>₹${(t.exitPrice || 0).toFixed(2)}</td>
+                    <td style="font-weight: 700;" class="${isProfit ? 'profit' : 'loss'}">${pnlStr}</td>
+                    <td><span style="font-size: 11px; padding: 4px 8px; border-radius: 6px; background: rgba(255,255,255,0.05);">${t.exitReason || 'CLOSED'}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } catch (e) {
+            statusEl.textContent = `Backtest error: ${e.message}`;
+            statusEl.style.color = 'var(--md-sys-color-error)';
+        }
+    }
+
     window.onload = function() {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const startInput = document.getElementById('backtest-start');
+        const endInput = document.getElementById('backtest-end');
+        if (startInput) startInput.value = todayStr;
+        if (endInput) endInput.value = todayStr;
+
         fetchJournal();
         fetchActiveTrades();
         setInterval(fetchJournal, 30000);

@@ -13,6 +13,7 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.time.ZonedDateTime
 import java.time.ZoneId
+import java.time.LocalDate
 import java.time.Duration
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -128,6 +129,40 @@ fun main() = runBlocking {
                 exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
                 exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
                 val bytes = jsonStr.toByteArray(StandardCharsets.UTF_8)
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
+            } else if (path == "/api/run-backtest") {
+                val query = exchange.requestURI.query ?: ""
+                val queryParams = query.split("&").associate {
+                    val parts = it.split("=", limit = 2)
+                    if (parts.size == 2) {
+                        URLDecoder.decode(parts[0], StandardCharsets.UTF_8.name()) to 
+                        URLDecoder.decode(parts[1], StandardCharsets.UTF_8.name())
+                    } else {
+                        "" to ""
+                    }
+                }
+                val indexFilter = queryParams["index"] ?: "Sensex"
+                val startDate = queryParams["start"] ?: LocalDate.now(istZone).toString()
+                val endDate = queryParams["end"] ?: startDate
+
+                val token = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
+                val appIdEnv = System.getenv("FYERS_APP_ID") ?: dotenv["FYERS_APP_ID"] ?: ""
+
+                val resultJson = if (token.isNotEmpty() && appIdEnv.isNotEmpty()) {
+                    runBlocking {
+                        runBackendBacktest(viewModel, appIdEnv, token, indexFilter, startDate, endDate)
+                    }
+                } else {
+                    org.json.JSONObject().apply {
+                        put("trades", org.json.JSONArray())
+                        put("stats", org.json.JSONObject().apply { put("cumulativePnl", 0.0); put("totalTrades", 0) })
+                    }
+                }
+
+                exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
+                exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+                val bytes = resultJson.toString().toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
             } else if (path == "/callback") {

@@ -73,18 +73,35 @@ class PaperTradingEngine(
         }
     }
 
+    private fun getLotSize(symbol: String): Int {
+        return when {
+            symbol.contains("NIFTY", ignoreCase = true) && !symbol.contains("BANK", ignoreCase = true) -> 65
+            symbol.contains("BANKNIFTY", ignoreCase = true) || symbol.contains("NIFTYBANK", ignoreCase = true) -> 30
+            symbol.contains("SENSEX", ignoreCase = true) -> 20
+            else -> 1
+        }
+    }
+
     private fun formatEntryMessage(symbol: String, entryPrice: Double, quantity: Int, dateStr: String, timeStr: String): String {
+        val lotSize = getLotSize(symbol)
+        val lots = if (lotSize > 0) quantity / lotSize else 1
+        val qtyDisplay = "$quantity ($lots lot(s) x $lotSize)"
+
         return """
             🚀 ENTRY · GANN
             Direction: LONG
             Instrument: BUY $symbol
               Entry: ₹${String.format("%.2f", entryPrice)}
-            Qty: $quantity
+            Qty: $qtyDisplay
             [PAPER] $dateStr $timeStr IST
         """.trimIndent()
     }
 
     private fun formatExitMessage(symbol: String, exitType: String, entryPrice: Double, exitPrice: Double, quantity: Int, pnl: Double, dateStr: String, timeStr: String): String {
+        val lotSize = getLotSize(symbol)
+        val lots = if (lotSize > 0) quantity / lotSize else 1
+        val qtyDisplay = "$quantity ($lots lot(s) x $lotSize)"
+
         val emoji = when {
             pnl > 0 -> "🟢"
             pnl < 0 -> "🔴"
@@ -98,7 +115,7 @@ class PaperTradingEngine(
             Direction: LONG
             Instrument: SELL $symbol
               Entry: ₹${String.format("%.2f", entryPrice)} → Exit: ₹${String.format("%.2f", exitPrice)}
-            Qty: $quantity
+            Qty: $qtyDisplay
             $emoji P&L: $pnlFormatted
             [PAPER] $dateStr $timeStr IST
         """.trimIndent()
