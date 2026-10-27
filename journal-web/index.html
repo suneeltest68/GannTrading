@@ -3,67 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Options Spread Monitor (Bull Put / Bear Call)</title>
+    <title>Options Spread Monitor</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .glass-card {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+        .glass-input {
+            background: rgba(2, 6, 23, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(8px);
+        }
+        .glass-input:focus {
+            border-color: rgba(99, 102, 241, 0.8);
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.25);
+        }
+        .glossy-btn {
+            background: linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%);
+            box-shadow: 0 10px 25px rgba(79, 70, 229, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+            transition: all 0.2s ease;
+        }
+        .glossy-btn:hover {
+            background: linear-gradient(135deg, #2563eb 0%, #4338ca 100%);
+            box-shadow: 0 15px 30px rgba(79, 70, 229, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+            transform: translateY(-1px);
+        }
+    </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
-    <div class="container mx-auto px-4 py-8 max-w-4xl">
-        <header class="mb-8 flex justify-between items-center border-b border-slate-800 pb-4">
+<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white">
+    <div class="container mx-auto px-4 py-10 max-w-4xl">
+        <header class="mb-10 flex justify-between items-center border-b border-slate-800/80 pb-5">
             <div>
-                <h1 class="text-2xl font-bold text-blue-400">📈 Options Spread Monitor</h1>
-                <p class="text-sm text-slate-400">Options Spread Live Tracking with Sell Strike SL & Target Alerts</p>
+                <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">📈 Options Spread Monitor</h1>
+                <p class="text-sm text-slate-400 mt-1">Live Tracking with Sell Strike SL & Target Telegram Alerts</p>
             </div>
             <div>
-                <a href="/auth" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">🔐 Fyers Auth</a>
+                <a href="/auth" class="glass-card px-5 py-2.5 rounded-xl text-sm font-semibold text-indigo-300 hover:text-white hover:border-indigo-500/50 transition flex items-center gap-2">🔐 Fyers Auth</a>
             </div>
         </header>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
             <!-- Spread Configuration Form -->
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
-                <h2 class="text-lg font-semibold mb-4 text-slate-200">⚙️ Spread Setup</h2>
-                <form id="spreadForm" class="space-y-4">
+            <div class="glass-card rounded-2xl p-7">
+                <h2 class="text-lg font-bold mb-5 text-slate-200 flex items-center gap-2">⚙️ Spread Setup</h2>
+                <form id="spreadForm" class="space-y-5">
                     <!-- Sell Leg -->
-                    <div class="pt-1">
-                        <h3 class="text-xs font-bold text-red-400 uppercase tracking-wider mb-2">🔴 Sell Leg (Short)</h3>
+                    <div>
+                        <h3 class="text-xs font-bold text-red-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">🔴 Sell Leg (Short)</h3>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs text-slate-400 mb-1">Sell Symbol</label>
-                                <input type="text" id="sellSymbol" placeholder="NSE:NIFTY24OCT24500PE" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm uppercase">
+                                <label class="block text-xs text-slate-400 mb-1.5 font-medium">Sell Symbol</label>
+                                <input type="text" id="sellSymbol" placeholder="NSE:NIFTY24OCT24500PE" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm uppercase text-slate-100 outline-none">
                             </div>
                             <div>
-                                <label class="block text-xs text-slate-400 mb-1">Entry Price (₹)</label>
-                                <input type="number" step="0.05" id="sellEntry" placeholder="120.00" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm">
+                                <label class="block text-xs text-slate-400 mb-1.5 font-medium">Entry Price (₹)</label>
+                                <input type="number" step="0.05" id="sellEntry" placeholder="120.00" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm text-slate-100 outline-none">
                             </div>
                         </div>
-                        <div class="mt-3">
-                            <label class="block text-xs text-red-300 mb-1">Sell Strike Stop Loss (SL) Price (₹)</label>
-                            <input type="number" step="0.05" id="sellSL" placeholder="180.00" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm border-red-900/50">
+                        <div class="mt-3.5">
+                            <label class="block text-xs text-red-300 mb-1.5 font-medium">Sell Strike Stop Loss (SL) Price (₹)</label>
+                            <input type="number" step="0.05" id="sellSL" placeholder="180.00" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm text-slate-100 outline-none border-red-900/40 focus:border-red-500/80">
                         </div>
                     </div>
 
                     <!-- Buy Leg -->
-                    <div class="border-t border-slate-800 pt-3">
-                        <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2">🟢 Buy Leg (Hedge)</h3>
+                    <div class="border-t border-slate-800/80 pt-4">
+                        <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">🟢 Buy Leg (Hedge)</h3>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs text-slate-400 mb-1">Buy Symbol</label>
-                                <input type="text" id="buySymbol" placeholder="NSE:NIFTY24OCT24000PE" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm uppercase">
+                                <label class="block text-xs text-slate-400 mb-1.5 font-medium">Buy Symbol</label>
+                                <input type="text" id="buySymbol" placeholder="NSE:NIFTY24OCT24000PE" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm uppercase text-slate-100 outline-none">
                             </div>
                             <div>
-                                <label class="block text-xs text-slate-400 mb-1">Entry Price (₹)</label>
-                                <input type="number" step="0.05" id="buyEntry" placeholder="45.00" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm">
+                                <label class="block text-xs text-slate-400 mb-1.5 font-medium">Entry Price (₹)</label>
+                                <input type="number" step="0.05" id="buyEntry" placeholder="45.00" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm text-slate-100 outline-none">
                             </div>
                         </div>
                     </div>
 
                     <!-- Target -->
-                    <div class="border-t border-slate-800 pt-3">
-                        <label class="block text-xs text-emerald-300 mb-1">Target Profit (₹)</label>
-                        <input type="number" step="1" id="targetProfit" placeholder="5000" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm border-emerald-900/50">
+                    <div class="border-t border-slate-800/80 pt-4">
+                        <label class="block text-xs text-emerald-300 mb-1.5 font-medium">Target Profit (₹)</label>
+                        <input type="number" step="1" id="targetProfit" placeholder="5000" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm text-slate-100 outline-none border-emerald-900/40 focus:border-emerald-500/80">
                     </div>
 
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg text-sm transition shadow-lg shadow-blue-600/20 mt-4">
+                    <button type="submit" class="glossy-btn w-full text-white font-bold py-3 rounded-xl text-sm tracking-wide mt-2">
                         🚀 Start Monitoring Spread
                     </button>
                 </form>
@@ -71,43 +99,43 @@
 
             <!-- Live Monitoring Dashboard -->
             <div class="space-y-6">
-                <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl">
-                    <h2 class="text-lg font-semibold mb-4 text-slate-200">📊 Live Status</h2>
-                    <div id="statusAlert" class="mb-4 p-3 rounded-lg text-sm font-semibold bg-slate-950 text-slate-400 border border-slate-800 text-center">
+                <div class="glass-card rounded-2xl p-7">
+                    <h2 class="text-lg font-bold mb-5 text-slate-200 flex items-center gap-2">📊 Live Status</h2>
+                    <div id="statusAlert" class="mb-5 p-3.5 rounded-xl text-sm font-semibold bg-slate-900/80 text-slate-400 border border-slate-800 text-center backdrop-blur-md">
                         ⏳ No active spread monitoring.
                     </div>
 
                     <div class="space-y-4 text-sm">
-                        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                            <div class="flex justify-between mb-1">
-                                <span class="text-slate-400">Sell Leg (<span id="dispSellSymbol">-</span>)</span>
-                                <span id="dispSellLTP" class="font-mono font-bold text-red-400">₹0.00</span>
+                        <div class="glass-input p-4 rounded-xl border border-slate-800/80">
+                            <div class="flex justify-between mb-1.5">
+                                <span class="text-slate-400 font-medium">Sell Leg (<span id="dispSellSymbol" class="text-slate-200">-</span>)</span>
+                                <span id="dispSellLTP" class="font-mono font-bold text-red-400 text-base">₹0.00</span>
                             </div>
-                            <div class="flex justify-between text-xs text-slate-500">
-                                <span>Entry: <span id="dispSellEntry">0</span> | SL: <span id="dispSellSL" class="text-red-300">0</span></span>
-                                <span id="dispSellStatus" class="font-semibold">Waiting...</span>
-                            </div>
-                        </div>
-
-                        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800">
-                            <div class="flex justify-between mb-1">
-                                <span class="text-slate-400">Buy Leg (<span id="dispBuySymbol">-</span>)</span>
-                                <span id="dispBuyLTP" class="font-mono font-bold text-emerald-400">₹0.00</span>
-                            </div>
-                            <div class="flex justify-between text-xs text-slate-500">
-                                <span>Entry: <span id="dispBuyEntry">0</span></span>
-                                <span>Hedge</span>
+                            <div class="flex justify-between text-xs text-slate-400">
+                                <span>Entry: <span id="dispSellEntry" class="text-slate-300">0</span> | SL: <span id="dispSellSL" class="text-red-300 font-semibold">0</span></span>
+                                <span id="dispSellStatus" class="font-semibold text-slate-400">Waiting...</span>
                             </div>
                         </div>
 
-                        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 flex justify-between items-center">
+                        <div class="glass-input p-4 rounded-xl border border-slate-800/80">
+                            <div class="flex justify-between mb-1.5">
+                                <span class="text-slate-400 font-medium">Buy Leg (<span id="dispBuySymbol" class="text-slate-200">-</span>)</span>
+                                <span id="dispBuyLTP" class="font-mono font-bold text-emerald-400 text-base">₹0.00</span>
+                            </div>
+                            <div class="flex justify-between text-xs text-slate-400">
+                                <span>Entry: <span id="dispBuyEntry" class="text-slate-300">0</span></span>
+                                <span class="text-slate-500">Hedge Leg</span>
+                            </div>
+                        </div>
+
+                        <div class="glass-input p-4 rounded-xl border border-slate-800/80 flex justify-between items-center bg-gradient-to-r from-slate-900/80 to-indigo-950/40">
                             <div>
-                                <span class="text-slate-400 text-xs block">Combined PnL</span>
-                                <span id="dispPnL" class="font-mono font-bold text-lg text-slate-200">₹0.00</span>
+                                <span class="text-slate-400 text-xs font-medium block">Combined PnL</span>
+                                <span id="dispPnL" class="font-mono font-bold text-xl text-slate-200">₹0.00</span>
                             </div>
                             <div class="text-right">
-                                <span class="text-slate-400 text-xs block">Target Profit</span>
-                                <span id="dispTarget" class="font-mono font-bold text-emerald-400">₹0</span>
+                                <span class="text-slate-400 text-xs font-medium block">Target Profit</span>
+                                <span id="dispTarget" class="font-mono font-bold text-lg text-emerald-400">₹0</span>
                             </div>
                         </div>
                     </div>
@@ -157,18 +185,18 @@
                     document.getElementById('dispBuyEntry').innerText = '₹' + data.buyEntry;
 
                     document.getElementById('dispPnL').innerText = '₹' + data.pnl.toFixed(2);
-                    document.getElementById('dispPnL').className = data.pnl >= 0 ? 'font-mono font-bold text-lg text-emerald-400' : 'font-mono font-bold text-lg text-red-400';
+                    document.getElementById('dispPnL').className = data.pnl >= 0 ? 'font-mono font-bold text-xl text-emerald-400' : 'font-mono font-bold text-xl text-red-400';
                     document.getElementById('dispTarget').innerText = '₹' + data.targetProfit;
 
                     const alertBox = document.getElementById('statusAlert');
                     if (data.status === 'SL_HIT') {
-                        alertBox.className = 'mb-4 p-3 rounded-lg text-sm font-semibold bg-red-950 text-red-300 border border-red-800 text-center animate-pulse';
+                        alertBox.className = 'mb-5 p-3.5 rounded-xl text-sm font-semibold bg-red-950/80 text-red-300 border border-red-800 text-center animate-pulse backdrop-blur-md';
                         alertBox.innerText = '🚨 SELL LEG STOP LOSS HIT! Telegram alert sent.';
                     } else if (data.status === 'TARGET_HIT') {
-                        alertBox.className = 'mb-4 p-3 rounded-lg text-sm font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800 text-center animate-pulse';
+                        alertBox.className = 'mb-5 p-3.5 rounded-xl text-sm font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800 text-center animate-pulse backdrop-blur-md';
                         alertBox.innerText = '🎯 TARGET PROFIT REACHED! Telegram alert sent.';
                     } else {
-                        alertBox.className = 'mb-4 p-3 rounded-lg text-sm font-semibold bg-blue-950 text-blue-300 border border-blue-800 text-center';
+                        alertBox.className = 'mb-5 p-3.5 rounded-xl text-sm font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 text-center backdrop-blur-md';
                         alertBox.innerText = '🟢 Monitoring Active...';
                     }
                 }
