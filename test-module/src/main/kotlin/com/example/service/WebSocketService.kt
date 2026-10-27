@@ -8,7 +8,8 @@ import java.util.concurrent.TimeUnit
 class OkHttpFyersWebSocketClient(
     private val appId: String,
     private val accessToken: String,
-    private val subscribedSymbols: List<String>
+    private val subscribedSymbols: List<String>,
+    private val onTick: ((symbol: String, ltp: Double) -> Unit)? = null
 ) {
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -41,7 +42,12 @@ class OkHttpFyersWebSocketClient(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
                     val json = JSONObject(text)
-                    println("Tick -> ${json.optString("symbol", "")} LTP: ${json.optDouble("ltp", 0.0)}")
+                    val symbol = json.optString("symbol", "")
+                    val ltp = json.optDouble("ltp", 0.0)
+                    if (symbol.isNotEmpty() && ltp > 0.0) {
+                        println("Tick -> $symbol LTP: $ltp")
+                        onTick?.invoke(symbol, ltp)
+                    }
                 } catch (e: Exception) {
                     println("WebSocket parse error: ${e.message} | Text: $text")
                 }

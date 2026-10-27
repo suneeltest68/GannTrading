@@ -9,6 +9,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import java.io.File
 import java.net.InetSocketAddress
 import java.time.ZonedDateTime
 import java.time.ZoneId
@@ -21,6 +22,22 @@ import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
+
+data class SpreadConfig(
+    val strategyType: String,
+    val sellSymbol: String,
+    val sellEntry: Double,
+    val sellSL: Double,
+    val buySymbol: String,
+    val buyEntry: Double,
+    val targetProfit: Double
+)
+
+var activeSpread: SpreadConfig? = null
+var sellLTP: Double = 0.0
+var buyLTP: Double = 0.0
+var spreadStatus: String = "IDLE" // IDLE, MONITORING, SL_HIT, TARGET_HIT
+var activeWsClient: OkHttpFyersWebSocketClient? = null
 
 fun main() = runBlocking {
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -39,7 +56,7 @@ fun main() = runBlocking {
     val istZone = ZoneId.of("Asia/Kolkata")
 
     println("==================================================")
-    println("🚀 FYERS AUTH + TELEGRAM NOTIFIER + WEBSOCKET - RAILWAY DAEMON")
+    println("🚀 OPTIONS SPREAD MONITOR + DAILY 9AM AUTH - RAILWAY DAEMON")
     println("==================================================")
 
     val appId = System.getenv("FYERS_APP_ID") ?: dotenv["FYERS_APP_ID"]
@@ -90,16 +107,14 @@ fun main() = runBlocking {
                         }
                     }
                 }
-            } catch (_: Exception) {
-                // Ignore network errors during polling
-            }
+            } catch (_: Exception) {}
             delay(5000L)
         }
     }
 
     var authCodeDeferred: CompletableDeferred<String>? = null
 
-    // Start 24/7 Background HTTP Server for OAuth Callback and Status
+    // Start 24/7 Background HTTP Server for Web UI Dashboard and REST APIs
     val server = HttpServer.create(InetSocketAddress(port), 0)
     server.createContext("/") { exchange ->
         val path = exchange.requestURI.path?.removeSuffix("/") ?: ""
@@ -117,9 +132,9 @@ fun main() = runBlocking {
                 }
                 val code = queryParams["s_code"] ?: queryParams["auth_code"] ?: queryParams["code"]
                 val responseHtml = if (!code.isNullOrEmpty()) {
-                    "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1 style='color: green;'>✅ Fyers Authentication Successful!</h1><p>Authorization code received. You can now close this tab and return to Railway.</p></body></html>"
+                    "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1 style='color: green;'>✅ Fyers Authentication Successful!</h1><p>Authorization code received. You can now close this tab.</p></body></html>"
                 } else {
-                    "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1 style='color: red;'>❌ Authentication Failed</h1><p>No authorization code found in callback query.</p></body></html>"
+                    "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1 style='color: red;'>❌ Authentication Failed</h1><p>No authorization code found.</p></body></html>"
                 }
                 exchange.responseHeaders.set("Content-Type", "text/html; charset=UTF-8")
                 val bytes = responseHtml.toByteArray(StandardCharsets.UTF_8)
@@ -132,15 +147,114 @@ fun main() = runBlocking {
             } else if (path == "/auth") {
                 viewModel.prepareLoginUrl(appId, redirectUri)
                 val loginUrl = viewModel.authState.value.loginUrl
-                val html = "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1>🔐 Fyers Bot Authentication</h1><p>Click below to authorize your Fyers account:</p><a href='$loginUrl' style='background: #0052FF; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-top: 20px;'>Login with Fyers</a></body></html>"
+                val html = "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1>🔐 Fyers Authentication</h1><p>Click below to authorize:</p><a href='$loginUrl' style='background: #0052FF; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; margin-top: 20px;'>Login with Fyers</a></body></html>"
                 exchange.responseHeaders.set("Content-Type", "text/html; charset=UTF-8")
                 val bytes = html.toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
+            } else if (path == "/api/start-spread") {
+                if (exchange.requestMethod.equals("POST", ignoreCase = true)) {
+                    val body = exchange.requestBody.bufferedReader().use { it.readText() }
+                    val json = JSONObject(body)
+                    val config = SpreadConfig(
+                        strategyType = json.optString("strategyType", "BullPut"),
+                        sellSymbol = json.optString("sellSymbol"),
+                        sellEntry = json.optDouble("sellEntry"),
+                        sellSL = json.optDouble("sellSL"),
+                        buySymbol = json.optString("buySymbol"),
+                        buyEntry = json.optDouble("buyEntry"),
+                        targetProfit = json.optDouble("targetProfit")
+                    )
+
+                    activeSpread = config
+                    sellLTP = config.sellEntry
+                    buyLTP = config.buyEntry
+                    spreadStatus = "MONITORING"
+
+                    // Start WebSocket streaming for both symbols using current active token
+                    val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
+                    if (token.isNotEmpty()) {
+                        activeWsClient?.stop()
+                        activeWsClient = OkHttpFyersWebSocketClient(appId, token, listOf(config.sellSymbol, config.buySymbol)) { symbol, ltp ->
+                            val spread = activeSpread ?: return@OkHttpFyersWebSocketClient
+                            if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT") return@OkHttpFyersWebSocketClient
+
+                            if (symbol == spread.sellSymbol) {
+                                sellLTP = ltp
+                                // Check Sell Strike SL
+                                if (ltp >= spread.sellSL) {
+                                    spreadStatus = "SL_HIT"
+                                    val msg = "🚨 [Spread SL HIT!] ${spread.strategyType} Sell Leg (${spread.sellSymbol}) hit Stop Loss!\nEntry: ₹${spread.sellEntry} | SL: ₹${spread.sellSL} | Current LTP: ₹$ltp"
+                                    println(msg)
+                                    CoroutineScope(Dispatchers.IO).launch {
+                                        TelegramNotifier.sendAlert(msg)
+                                    }
+                                }
+                            } else if (symbol == spread.buySymbol) {
+                                buyLTP = ltp
+                            }
+
+                            // Calculate spread PnL
+                            val sellPnl = spread.sellEntry - sellLTP
+                            val buyPnl = buyLTP - spread.buyEntry
+                            val totalPnl = sellPnl + buyPnl
+
+                            // Check Target Profit
+                            if (totalPnl >= spread.targetProfit) {
+                                spreadStatus = "TARGET_HIT"
+                                val msg = "🎯 [Spread Target REACHED!] ${spread.strategyType} target profit hit!\nTarget: ₹${spread.targetProfit} | Current PnL: ₹$totalPnl"
+                                println(msg)
+                                CoroutineScope(Dispatchers.IO).launch {
+                                    TelegramNotifier.sendAlert(msg)
+                                }
+                            }
+                        }
+                        activeWsClient?.start()
+                    }
+
+                    val resp = JSONObject().put("status", "success").toString()
+                    exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
+                    exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+                    val bytes = resp.toByteArray(StandardCharsets.UTF_8)
+                    exchange.sendResponseHeaders(200, bytes.size.toLong())
+                    exchange.responseBody.use { it.write(bytes) }
+                }
+            } else if (path == "/api/spread-status") {
+                val spread = activeSpread
+                val sellCurrent = if (sellLTP > 0.0) sellLTP else (spread?.sellEntry ?: 0.0)
+                val buyCurrent = if (buyLTP > 0.0) buyLTP else (spread?.buyEntry ?: 0.0)
+                val pnl = if (spread != null) (spread.sellEntry - sellCurrent) + (buyCurrent - spread.buyEntry) else 0.0
+
+                val respJson = JSONObject().apply {
+                    put("active", spread != null)
+                    put("strategyType", spread?.strategyType ?: "")
+                    put("sellSymbol", spread?.sellSymbol ?: "")
+                    put("sellEntry", spread?.sellEntry ?: 0.0)
+                    put("sellSL", spread?.sellSL ?: 0.0)
+                    put("sellLTP", sellCurrent)
+                    put("buySymbol", spread?.buySymbol ?: "")
+                    put("buyEntry", spread?.buyEntry ?: 0.0)
+                    put("buyLTP", buyCurrent)
+                    put("targetProfit", spread?.targetProfit ?: 0.0)
+                    put("pnl", pnl)
+                    put("status", spreadStatus)
+                }.toString()
+
+                exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
+                exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+                val bytes = respJson.toByteArray(StandardCharsets.UTF_8)
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
             } else {
-                val statusHtml = "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1>🚀 Fyers Railway Daemon Running</h1><p>Fyers Authentication + Telegram Notifier + WebSocket Streaming Active.</p><p><a href='/auth'>Authenticate / Login</a></p></body></html>"
+                // Serve journal-web/index.html
+                val file = listOf(
+                    File("journal-web/index.html"),
+                    File("../journal-web/index.html"),
+                    File("test-module/journal-web/index.html")
+                ).firstOrNull { it.exists() } ?: File("journal-web/index.html")
+                val htmlStr = if (file.exists()) file.readText() else "<h1>Options Spread Monitor</h1>"
                 exchange.responseHeaders.set("Content-Type", "text/html; charset=UTF-8")
-                val bytes = statusHtml.toByteArray(StandardCharsets.UTF_8)
+                val bytes = htmlStr.toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
             }
@@ -152,10 +266,11 @@ fun main() = runBlocking {
     }
     server.setExecutor(null)
     server.start()
-    println("[HTTP Server] Running 24/7 on port $port (OAuth Callback: /callback, Auth: /auth)")
+    println("[HTTP Server] Running on port $port (Spread UI: /, API: /api/start-spread, /api/spread-status)")
 
     var isFirstRun = true
 
+    // Daily 9:00 AM IST Authentication Scheduler Loop
     while (true) {
         if (!isFirstRun) {
             val now = ZonedDateTime.now(istZone)
@@ -168,41 +283,30 @@ fun main() = runBlocking {
             }
 
             val delayMillis = Duration.between(now, nextRun).toMillis()
-            println("\n[Daemon] Next daily startup scheduled for: $nextRun (in ${delayMillis / 1000 / 60} minutes)")
-            
+            println("\n[Daemon] Next daily 9:00 AM IST auth scheduled for: $nextRun (in ${delayMillis / 1000 / 60} minutes)")
             delay(delayMillis)
         } else {
-            println("\n[Daemon] First startup: Running daemon session immediately...")
+            println("\n[Daemon] First startup: Running daily auth routine immediately...")
             isFirstRun = false
         }
 
-        // Clear old token at startup trigger
+        // Daily 9:00 AM IST Trigger: Clear token & reset active spread
         viewModel.clearToken()
+        activeSpread = null
+        spreadStatus = "IDLE"
 
-        var activeToken: String? = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"]
-
-        if (activeToken != null) {
-            println("[Env] Using Access Token from environment.")
-        }
+        var activeToken = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"]
 
         if (activeToken.isNullOrEmpty()) {
-            println("[Auth] Access token missing. Clearing old token & waiting for OAuth callback...")
-            
+            println("[Auth] Daily 9 AM: Access token cleared. Waiting for OAuth login...")
             viewModel.prepareLoginUrl(appId, redirectUri)
             val loginUrl = viewModel.authState.value.loginUrl
-            
-            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Daily Auth Required! Access token cleared. Please login & authorize:\n$loginUrl")
+            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Daily 9:00 AM Auth Required! Access token cleared. Please login & authorize:\n$loginUrl")
 
             authCodeDeferred = CompletableDeferred()
-
             val authCode = try {
-                withTimeout(60 * 60 * 1000L) {
-                    authCodeDeferred?.await()
-                }
-            } catch (_: Exception) {
-                null
-            }
-
+                withTimeout(60 * 60 * 1000L) { authCodeDeferred?.await() }
+            } catch (_: Exception) { null }
             authCodeDeferred = null
 
             if (authCode != null) {
@@ -210,43 +314,15 @@ fun main() = runBlocking {
                 viewModel.authenticateWithAuthCode(appId, secretKey, authCode)
                 val finalState = viewModel.authState.value
                 if (finalState.accessToken != null) {
-                    activeToken = finalState.accessToken
-                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Access Token acquired successfully via web callback!")
+                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Daily Access Token acquired successfully via web callback!")
                 } else {
                     TelegramNotifier.sendAlert("❌ [Fyers Railway Daemon] Token exchange failed: ${finalState.errorMessage}")
                 }
             } else {
                 TelegramNotifier.sendAlert("❌ [Fyers Railway Daemon] Authentication timed out waiting for web callback.")
-                delay(10 * 60 * 1000L)
-                continue
             }
         }
 
-        if (activeToken != null) {
-            try {
-                println("\n[WebSocket] Starting Fyers WebSocket live streaming...")
-                val symbols = listOf("NSE:NIFTY50-INDEX", "BSE:SENSEX-INDEX")
-                val wsClient = OkHttpFyersWebSocketClient(appId, activeToken, symbols)
-                wsClient.start()
-
-                TelegramNotifier.sendAlert("🟢 [Fyers Railway Daemon] WebSocket connected and streaming live ticks.")
-
-                // Keep daemon alive during market hours until 3:35 PM IST today
-                val now = ZonedDateTime.now(istZone)
-                val marketCloseTimeToday = now.withHour(15).withMinute(35).withSecond(0).withNano(0)
-                if (now.isBefore(marketCloseTimeToday)) {
-                    val waitDuration = Duration.between(now, marketCloseTimeToday).toMillis()
-                    println("[Daemon] Streaming active. Waiting until market close at 3:35 PM IST (${waitDuration / 1000 / 60} minutes remaining)...")
-                    delay(waitDuration)
-                }
-
-                wsClient.stop()
-            } catch (e: Exception) {
-                println("[Daemon Error] Exception: ${e.message}")
-                TelegramNotifier.sendAlert("❌ [Fyers Daemon] Error during execution: ${e.message}")
-            }
-        }
-
-        delay(10 * 60 * 1000L)
+        delay(60 * 60 * 1000L)
     }
 }
