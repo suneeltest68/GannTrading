@@ -1,19 +1,17 @@
 package com.example
 
 import com.example.viewmodel.AuthViewModel
-import com.example.service.TradingWorkflowService
 import com.example.service.TelegramNotifier
+import com.example.service.OkHttpFyersWebSocketClient
 import com.sun.net.httpserver.HttpServer
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import java.io.File
 import java.net.InetSocketAddress
 import java.time.ZonedDateTime
 import java.time.ZoneId
-import java.time.LocalDate
 import java.time.Duration
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
@@ -38,11 +36,10 @@ fun main() = runBlocking {
 
     val dotenv = dotenv { ignoreIfMissing = true }
     val viewModel = AuthViewModel()
-    val workflowService = TradingWorkflowService(viewModel)
     val istZone = ZoneId.of("Asia/Kolkata")
 
     println("==================================================")
-    println("🚀 FYERS ALGO TRADING BOT - RAILWAY DAEMON (24/7 WEB & CALLBACK)")
+    println("🚀 FYERS AUTH + TELEGRAM NOTIFIER + WEBSOCKET - RAILWAY DAEMON")
     println("==================================================")
 
     val appId = System.getenv("FYERS_APP_ID") ?: dotenv["FYERS_APP_ID"]
@@ -102,70 +99,12 @@ fun main() = runBlocking {
 
     var authCodeDeferred: CompletableDeferred<String>? = null
 
-    // Start 24/7 Background HTTP Server for Website Dashboard, API, and OAuth Callback
+    // Start 24/7 Background HTTP Server for OAuth Callback and Status
     val server = HttpServer.create(InetSocketAddress(port), 0)
     server.createContext("/") { exchange ->
         val path = exchange.requestURI.path?.removeSuffix("/") ?: ""
         try {
-            if (path == "/api/journal" || path == "/journal") {
-                val file = listOf(
-                    File("trading_journal.json"),
-                    File("../trading_journal.json"),
-                    File("test-module/trading_journal.json")
-                ).firstOrNull { it.exists() } ?: File("trading_journal.json")
-                val jsonStr = if (file.exists()) file.readText() else "{\"trades\":[],\"stats\":{}}"
-                exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
-                exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
-                val bytes = jsonStr.toByteArray(StandardCharsets.UTF_8)
-                exchange.sendResponseHeaders(200, bytes.size.toLong())
-                exchange.responseBody.use { it.write(bytes) }
-            } else if (path == "/api/active-trades") {
-                val file = listOf(
-                    File("active_trades.json"),
-                    File("../active_trades.json"),
-                    File("test-module/active_trades.json")
-                ).firstOrNull { it.exists() } ?: File("active_trades.json")
-                val jsonStr = if (file.exists()) file.readText() else "{}"
-                exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
-                exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
-                val bytes = jsonStr.toByteArray(StandardCharsets.UTF_8)
-                exchange.sendResponseHeaders(200, bytes.size.toLong())
-                exchange.responseBody.use { it.write(bytes) }
-            } else if (path == "/api/run-backtest") {
-                val query = exchange.requestURI.query ?: ""
-                val queryParams = query.split("&").associate {
-                    val parts = it.split("=", limit = 2)
-                    if (parts.size == 2) {
-                        URLDecoder.decode(parts[0], StandardCharsets.UTF_8.name()) to 
-                        URLDecoder.decode(parts[1], StandardCharsets.UTF_8.name())
-                    } else {
-                        "" to ""
-                    }
-                }
-                val indexFilter = queryParams["index"] ?: "Sensex"
-                val startDate = queryParams["start"] ?: LocalDate.now(istZone).toString()
-                val endDate = queryParams["end"] ?: startDate
-
-                val token = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
-                val appIdEnv = System.getenv("FYERS_APP_ID") ?: dotenv["FYERS_APP_ID"] ?: ""
-
-                val resultJson = if (token.isNotEmpty() && appIdEnv.isNotEmpty()) {
-                    runBlocking {
-                        runBackendBacktest(viewModel, appIdEnv, token, indexFilter, startDate, endDate)
-                    }
-                } else {
-                    org.json.JSONObject().apply {
-                        put("trades", org.json.JSONArray())
-                        put("stats", org.json.JSONObject().apply { put("cumulativePnl", 0.0); put("totalTrades", 0) })
-                    }
-                }
-
-                exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
-                exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
-                val bytes = resultJson.toString().toByteArray(StandardCharsets.UTF_8)
-                exchange.sendResponseHeaders(200, bytes.size.toLong())
-                exchange.responseBody.use { it.write(bytes) }
-            } else if (path == "/callback") {
+            if (path == "/callback") {
                 val query = exchange.requestURI.query ?: ""
                 val queryParams = query.split("&").associate {
                     val parts = it.split("=", limit = 2)
@@ -199,15 +138,9 @@ fun main() = runBlocking {
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
             } else {
-                // Serve Gann Trading Journal Dashboard (journal-web/index.html)
-                val file = listOf(
-                    File("journal-web/index.html"),
-                    File("../journal-web/index.html"),
-                    File("test-module/journal-web/index.html")
-                ).firstOrNull { it.exists() } ?: File("journal-web/index.html")
-                val htmlStr = if (file.exists()) file.readText() else "<h1>Gann Trading Journal</h1><p>index.html not found.</p>"
+                val statusHtml = "<html><body style='font-family: Arial; text-align: center; margin-top: 50px;'><h1>🚀 Fyers Railway Daemon Running</h1><p>Fyers Authentication + Telegram Notifier + WebSocket Streaming Active.</p><p><a href='/auth'>Authenticate / Login</a></p></body></html>"
                 exchange.responseHeaders.set("Content-Type", "text/html; charset=UTF-8")
-                val bytes = htmlStr.toByteArray(StandardCharsets.UTF_8)
+                val bytes = statusHtml.toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
             }
@@ -219,7 +152,7 @@ fun main() = runBlocking {
     }
     server.setExecutor(null)
     server.start()
-    println("[HTTP Server] Running 24/7 on port $port (Dashboard: /, API: /api/journal, OAuth: /callback)")
+    println("[HTTP Server] Running 24/7 on port $port (OAuth Callback: /callback, Auth: /auth)")
 
     var isFirstRun = true
 
@@ -239,25 +172,13 @@ fun main() = runBlocking {
             
             delay(delayMillis)
         } else {
-            println("\n[Daemon] First startup: Running trading session immediately...")
+            println("\n[Daemon] First startup: Running daemon session immediately...")
             isFirstRun = false
         }
 
-        println("\n--------------------------------------------------")
-        println("🌅 [Daily Routine] Starting Trading Session...")
-        println("--------------------------------------------------")
-
-        val nowCheck = ZonedDateTime.now(istZone)
-        val marketCloseToday = nowCheck.withHour(15).withMinute(35).withSecond(0).withNano(0)
-        if (nowCheck.isAfter(marketCloseToday)) {
-            println("[Daemon] Current time ($nowCheck) is past market close (3:35 PM IST). Skipping trading session and sleeping until tomorrow 9:00 AM IST...")
-            continue
-        }
-
-        // Clear old token at 9:00 AM IST trigger so live trading never uses cached tokens
+        // Clear old token at startup trigger
         viewModel.clearToken()
 
-        // For live trading, do not use cached token. Only allow environment token if explicitly provided, otherwise force fresh auth.
         var activeToken: String? = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"]
 
         if (activeToken != null) {
@@ -274,7 +195,6 @@ fun main() = runBlocking {
 
             authCodeDeferred = CompletableDeferred()
 
-            // Wait until callback receives auth code (or timeout after 1 hour)
             val authCode = try {
                 withTimeout(60 * 60 * 1000L) {
                     authCodeDeferred?.await()
@@ -304,23 +224,29 @@ fun main() = runBlocking {
 
         if (activeToken != null) {
             try {
-                workflowService.executeCurrentExpiryWorkflow(appId, activeToken)
+                println("\n[WebSocket] Starting Fyers WebSocket live streaming...")
+                val symbols = listOf("NSE:NIFTY50-INDEX", "BSE:SENSEX-INDEX")
+                val wsClient = OkHttpFyersWebSocketClient(appId, activeToken, symbols)
+                wsClient.start()
+
+                TelegramNotifier.sendAlert("🟢 [Fyers Railway Daemon] WebSocket connected and streaming live ticks.")
 
                 // Keep daemon alive during market hours until 3:35 PM IST today
                 val now = ZonedDateTime.now(istZone)
                 val marketCloseTimeToday = now.withHour(15).withMinute(35).withSecond(0).withNano(0)
                 if (now.isBefore(marketCloseTimeToday)) {
                     val waitDuration = Duration.between(now, marketCloseTimeToday).toMillis()
-                    println("[Daemon] Trading session active. Waiting until market close at 3:35 PM IST (${waitDuration / 1000 / 60} minutes remaining)...")
+                    println("[Daemon] Streaming active. Waiting until market close at 3:35 PM IST (${waitDuration / 1000 / 60} minutes remaining)...")
                     delay(waitDuration)
                 }
+
+                wsClient.stop()
             } catch (e: Exception) {
-                println("[Daemon Error] Workflow exception: ${e.message}")
+                println("[Daemon Error] Exception: ${e.message}")
                 TelegramNotifier.sendAlert("❌ [Fyers Daemon] Error during execution: ${e.message}")
             }
         }
 
-        // Sleep 10 minutes before looping to ensure we don't double-trigger on the same day
         delay(10 * 60 * 1000L)
     }
 }
