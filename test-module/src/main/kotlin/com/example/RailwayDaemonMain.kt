@@ -24,7 +24,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 
 data class SpreadConfig(
-    val strategyType: String,
     val sellSymbol: String,
     val sellEntry: Double,
     val sellSL: Double,
@@ -157,7 +156,6 @@ fun main() = runBlocking {
                     val body = exchange.requestBody.bufferedReader().use { it.readText() }
                     val json = JSONObject(body)
                     val config = SpreadConfig(
-                        strategyType = json.optString("strategyType", "BullPut"),
                         sellSymbol = json.optString("sellSymbol"),
                         sellEntry = json.optDouble("sellEntry"),
                         sellSL = json.optDouble("sellSL"),
@@ -184,7 +182,7 @@ fun main() = runBlocking {
                                 // Check Sell Strike SL
                                 if (ltp >= spread.sellSL) {
                                     spreadStatus = "SL_HIT"
-                                    val msg = "🚨 [Spread SL HIT!] ${spread.strategyType} Sell Leg (${spread.sellSymbol}) hit Stop Loss!\nEntry: ₹${spread.sellEntry} | SL: ₹${spread.sellSL} | Current LTP: ₹$ltp"
+                                    val msg = "🚨 [Spread SL HIT!] Sell Leg (${spread.sellSymbol}) hit Stop Loss!\nEntry: ₹${spread.sellEntry} | SL: ₹${spread.sellSL} | Current LTP: ₹$ltp"
                                     println(msg)
                                     CoroutineScope(Dispatchers.IO).launch {
                                         TelegramNotifier.sendAlert(msg)
@@ -202,7 +200,7 @@ fun main() = runBlocking {
                             // Check Target Profit
                             if (totalPnl >= spread.targetProfit) {
                                 spreadStatus = "TARGET_HIT"
-                                val msg = "🎯 [Spread Target REACHED!] ${spread.strategyType} target profit hit!\nTarget: ₹${spread.targetProfit} | Current PnL: ₹$totalPnl"
+                                val msg = "🎯 [Spread Target REACHED!] Target profit hit!\nTarget: ₹${spread.targetProfit} | Current PnL: ₹$totalPnl"
                                 println(msg)
                                 CoroutineScope(Dispatchers.IO).launch {
                                     TelegramNotifier.sendAlert(msg)
@@ -227,7 +225,6 @@ fun main() = runBlocking {
 
                 val respJson = JSONObject().apply {
                     put("active", spread != null)
-                    put("strategyType", spread?.strategyType ?: "")
                     put("sellSymbol", spread?.sellSymbol ?: "")
                     put("sellEntry", spread?.sellEntry ?: 0.0)
                     put("sellSL", spread?.sellSL ?: 0.0)
