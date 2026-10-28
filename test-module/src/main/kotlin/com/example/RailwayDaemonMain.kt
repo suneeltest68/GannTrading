@@ -267,6 +267,8 @@ fun main() = runBlocking {
                     } else "" to ""
                 }
                 val q = queryParams["q"] ?: ""
+                val strategy = queryParams["strategy"] ?: "BullPut"
+                val requiredSuffix = if (strategy.equals("BearCall", ignoreCase = true)) "CE" else "PE"
 
                 val istNow = ZonedDateTime.now(ZoneId.of("Asia/Kolkata"))
                 val dayOfWeek = istNow.dayOfWeek
@@ -280,7 +282,7 @@ fun main() = runBlocking {
                 val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
                 val symbolsList = org.json.JSONArray()
 
-                println("[SearchSymbols] Query: '$q', Index: $indexSymbol, Token present: ${token.isNotEmpty()}")
+                println("[SearchSymbols] Query: '$q', Strategy: $strategy (Suffix: $requiredSuffix), Index: $indexSymbol, Token present: ${token.isNotEmpty()}")
 
                 if (token.isNotEmpty() && appId.isNotEmpty()) {
                     val chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, indexSymbol, 40) }
@@ -298,16 +300,16 @@ fun main() = runBlocking {
                                         val item = value.opt(i)
                                         if (item is JSONObject) {
                                             val sym = item.optString("symbol", "")
-                                            if (sym.isNotEmpty() && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
+                                            if (sym.isNotEmpty() && (q.isEmpty() || sym.contains(q, ignoreCase = true)) && sym.endsWith(requiredSuffix, ignoreCase = true)) {
                                                 var exists = false
                                                 for (j in 0 until symbolsList.length()) {
                                                     if (symbolsList.getString(j) == sym) exists = true
                                                 }
                                                 if (!exists) symbolsList.put(sym)
-                                            } else {
+                                            } else if (sym.isEmpty()) {
                                                 extractSymbols(item)
                                             }
-                                        } else if (item is String && item.contains(":") && (q.isEmpty() || item.contains(q, ignoreCase = true))) {
+                                        } else if (item is String && item.contains(":") && (q.isEmpty() || item.contains(q, ignoreCase = true)) && item.endsWith(requiredSuffix, ignoreCase = true)) {
                                             var exists = false
                                             for (j in 0 until symbolsList.length()) {
                                                 if (symbolsList.getString(j) == item) exists = true
@@ -324,7 +326,7 @@ fun main() = runBlocking {
                     }
                 }
 
-                println("[SearchSymbols] Found ${symbolsList.length()} symbols matching '$q'")
+                println("[SearchSymbols] Found ${symbolsList.length()} symbols matching '$q' for $requiredSuffix")
 
                 val respJson = symbolsList.toString()
                 exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
