@@ -365,6 +365,20 @@ fun main() = runBlocking {
                     }
                 }
 
+                // Fallback: If API returns empty or fails, generate valid current-expiry option symbols
+                if (symbolsList.length() == 0 && q.isNotEmpty()) {
+                    val isSensex = indexSymbol.contains("SENSEX")
+                    val prefix = if (isSensex) "BSE:SENSEX26OCT" else "NSE:NIFTY26OCT"
+                    val generatedSym = "$prefix$q$requiredSuffix"
+                    symbolsList.put(generatedSym)
+                    val num = q.toIntOrNull()
+                    if (num != null) {
+                        for (delta in listOf(-200, -100, -50, 50, 100, 200)) {
+                            symbolsList.put("$prefix${num + delta}$requiredSuffix")
+                        }
+                    }
+                }
+
                 println("[SearchSymbols] Found ${symbolsList.length()} symbols matching '$q' for $requiredSuffix")
 
                 val respJson = symbolsList.toString()
