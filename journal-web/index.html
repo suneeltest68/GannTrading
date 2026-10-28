@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nightwatch — Unified Trading & Spread Dashboard</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nightwatch — Strike Ledger & Spread Monitor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -102,7 +102,6 @@ function setStrategy(strat) {
     currentStrategy = strat;
     $('btnBullPut').classList.toggle('active', strat === 'BullPut');
     $('btnBearCall').classList.toggle('active', strat === 'BearCall');
-    // Clear symbols when switching strategy
     $('sellSymbol').value = '';
     $('buySymbol').value = '';
 }
@@ -171,7 +170,7 @@ function formatIndianLive(el){
 });
 $('clear').onclick=()=>{['qty','margin','sell','buy'].forEach(id=>$(id).value='');refresh()};
 
-// Autocomplete for option symbols filtered by strategy (PE vs CE)
+// Autocomplete for option symbols
 async function setupAutocomplete(inputId, dropdownId) {
     const input = $(inputId);
     const dropdown = $(dropdownId);
@@ -227,27 +226,39 @@ document.getElementById('spreadForm').addEventListener('submit', async (e) => {
         return;
     }
 
+    const sellSym = document.getElementById('sellSymbol').value.replace(/\s+/g, '').toUpperCase();
+    const buySym = document.getElementById('buySymbol').value.replace(/\s+/g, '').toUpperCase();
+
+    if (!sellSym || !buySym) {
+        alert('Please enter both Sell Leg Symbol and Buy Leg Symbol.');
+        return;
+    }
+
     const data = {
-        sellSymbol: document.getElementById('sellSymbol').value.replace(/\s+/g, '').toUpperCase(),
+        sellSymbol: sellSym,
         sellEntry: sell,
         sellSL: calculatedSellSL,
-        buySymbol: document.getElementById('buySymbol').value.replace(/\s+/g, '').toUpperCase(),
+        buySymbol: buySym,
         buyEntry: buy,
         targetProfit: calculatedTarget,
         quantity: q
     };
 
-    const res = await fetch('/api/start-spread', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    const json = await res.json();
-    if (res.ok) {
-        alert('Spread monitoring started successfully!');
-        pollStatus();
-    } else {
-        alert('Error: ' + (json.message || 'Failed to start'));
+    try {
+        const res = await fetch('/api/start-spread', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const text = await res.text();
+        if (res.ok) {
+            alert('Spread monitoring started successfully!');
+            pollStatus();
+        } else {
+            alert('Server Error: ' + text);
+        }
+    } catch (err) {
+        alert('Network Error: ' + err.message);
     }
 });
 
