@@ -2,7 +2,7 @@ package com.example
 
 import com.example.viewmodel.AuthViewModel
 import com.example.service.TelegramNotifier
-import com.example.service.OkHttpFyersWebSocketClient
+import com.example.service.FyersSdkWebSocketClient
 import com.sun.net.httpserver.HttpServer
 import io.github.cdimascio.dotenv.dotenv
 import kotlinx.coroutines.CompletableDeferred
@@ -37,7 +37,7 @@ var activeSpread: SpreadConfig? = null
 var sellLTP: Double = 0.0
 var buyLTP: Double = 0.0
 var spreadStatus: String = "IDLE" // IDLE, MONITORING, SL_HIT, TARGET_HIT, CLOSED_12PM
-var activeWsClient: OkHttpFyersWebSocketClient? = null
+var activeWsClient: FyersSdkWebSocketClient? = null
 
 fun main() = runBlocking {
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -185,9 +185,9 @@ fun main() = runBlocking {
                     val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
                     if (token.isNotEmpty()) {
                         activeWsClient?.stop()
-                        activeWsClient = OkHttpFyersWebSocketClient(appId, token, listOf(config.sellSymbol, config.buySymbol)) { symbol, ltp ->
-                            val spread = activeSpread ?: return@OkHttpFyersWebSocketClient
-                            if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT" || spreadStatus == "CLOSED_12PM") return@OkHttpFyersWebSocketClient
+                        activeWsClient = FyersSdkWebSocketClient(appId, token, listOf(config.sellSymbol, config.buySymbol)) { symbol, ltp ->
+                            val spread = activeSpread ?: return@FyersSdkWebSocketClient
+                            if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT" || spreadStatus == "CLOSED_12PM") return@FyersSdkWebSocketClient
 
                             if (symbol == spread.sellSymbol) {
                                 sellLTP = ltp
