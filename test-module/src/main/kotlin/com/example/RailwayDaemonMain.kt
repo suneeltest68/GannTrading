@@ -29,13 +29,14 @@ data class SpreadConfig(
     val sellSL: Double,
     val buySymbol: String,
     val buyEntry: Double,
-    val targetProfit: Double
+    val targetProfit: Double,
+    val quantity: Int
 )
 
 var activeSpread: SpreadConfig? = null
 var sellLTP: Double = 0.0
 var buyLTP: Double = 0.0
-var spreadStatus: String = "IDLE" // IDLE, MONITORING, SL_HIT, TARGET_HIT
+var spreadStatus: String = "IDLE" // IDLE, MONITORING, SL_HIT, TARGET_HIT, CLOSED_12PM
 var activeWsClient: OkHttpFyersWebSocketClient? = null
 
 fun main() = runBlocking {
@@ -55,7 +56,7 @@ fun main() = runBlocking {
     val istZone = ZoneId.of("Asia/Kolkata")
 
     println("==================================================")
-    println("🚀 OPTIONS SPREAD MONITOR + DAILY 9AM AUTH - RAILWAY DAEMON")
+    println("🚀 OPTIONS SPREAD MONITOR + STRICT SESSION END SAFETY")
     println("==================================================")
 
     val appId = System.getenv("FYERS_APP_ID") ?: dotenv["FYERS_APP_ID"]
@@ -67,6 +68,16 @@ fun main() = runBlocking {
     if (appId.isNullOrEmpty() || secretKey.isNullOrEmpty() || redirectUri.isNullOrEmpty()) {
         println("❌ Error: Missing required Fyers environment variables.")
         return@runBlocking
+    }
+
+    fun endSessionAndCleanup() {
+        println("[Daemon] Session ended. Closing all WebSockets, clearing tokens, and deleting cache files...")
+        activeWsClient?.stop()
+        activeWsClient = null
+        viewModel.clearToken()
+        File("token.json").takeIf { it.exists() }?.delete()
+        File("fyers_token.json").takeIf { it.exists() }?.delete()
+        activeSpread = null
     }
 
     // Start background Telegram Polling for /auth command
@@ -161,7 +172,8 @@ fun main() = runBlocking {
                         sellSL = json.optDouble("sellSL"),
                         buySymbol = json.optString("buySymbol"),
                         buyEntry = json.optDouble("buyEntry"),
-                        targetProfit = json.optDouble("targetProfit")
+                        targetProfit = json.optDouble("targetProfit"),
+                        quantity = json.optInt("quantity", 25)
                     )
 
                     activeSpread = config
@@ -175,7 +187,7 @@ fun main() = runBlocking {
                         activeWsClient?.stop()
                         activeWsClient = OkHttpFyersWebSocketClient(appId, token, listOf(config.sellSymbol, config.buySymbol)) { symbol, ltp ->
                             val spread = activeSpread ?: return@OkHttpFyersWebSocketClient
-                            if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT") return@OkHttpFyersWebSocketClient
+                            if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT" || spreadStatus == "CLOSED_12PM") return@OkHttpFyersWebSocketClient
 
                             if (symbol == spread.sellSymbol) {
                                 sellLTP = ltp
@@ -187,24 +199,26 @@ fun main() = runBlocking {
                                     CoroutineScope(Dispatchers.IO).launch {
                                         TelegramNotifier.sendAlert(msg)
                                     }
+                                    endSessionAndCleanup()
                                 }
                             } else if (symbol == spread.buySymbol) {
                                 buyLTP = ltp
                             }
 
-                            // Calculate spread PnL
-                            val sellPnl = spread.sellEntry - sellLTP
-                            val buyPnl = buyLTP - spread.buyEntry
+                            // Calculate spread PnL scaled by quantity
+                            val sellPnl = (spread.sellEntry - sellLTP) * spread.quantity
+                            val buyPnl = (buyLTP - spread.buyEntry) * spread.quantity
                             val totalPnl = sellPnl + buyPnl
 
                             // Check Target Profit
                             if (totalPnl >= spread.targetProfit) {
                                 spreadStatus = "TARGET_HIT"
-                                val msg = "🎯 [Spread Target REACHED!] Target profit hit!\nTarget: ₹${spread.targetProfit} | Current PnL: ₹$totalPnl"
+                                val msg = "🎯 [Spread Target REACHED!] Target profit hit!\nTarget: ₹${spread.targetProfit} | Current PnL: ₹$totalPnl (Qty: ${spread.quantity})"
                                 println(msg)
                                 CoroutineScope(Dispatchers.IO).launch {
                                     TelegramNotifier.sendAlert(msg)
                                 }
+                                endSessionAndCleanup()
                             }
                         }
                         activeWsClient?.start()
@@ -221,7 +235,8 @@ fun main() = runBlocking {
                 val spread = activeSpread
                 val sellCurrent = if (sellLTP > 0.0) sellLTP else (spread?.sellEntry ?: 0.0)
                 val buyCurrent = if (buyLTP > 0.0) buyLTP else (spread?.buyEntry ?: 0.0)
-                val pnl = if (spread != null) (spread.sellEntry - sellCurrent) + (buyCurrent - spread.buyEntry) else 0.0
+                val qty = spread?.quantity ?: 1
+                val pnl = if (spread != null) ((spread.sellEntry - sellCurrent) + (buyCurrent - spread.buyEntry)) * qty else 0.0
 
                 val respJson = JSONObject().apply {
                     put("active", spread != null)
@@ -233,6 +248,7 @@ fun main() = runBlocking {
                     put("buyEntry", spread?.buyEntry ?: 0.0)
                     put("buyLTP", buyCurrent)
                     put("targetProfit", spread?.targetProfit ?: 0.0)
+                    put("quantity", qty)
                     put("pnl", pnl)
                     put("status", spreadStatus)
                 }.toString()
@@ -242,14 +258,74 @@ fun main() = runBlocking {
                 val bytes = respJson.toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
+            } else if (path == "/api/search-symbols") {
+                val query = exchange.requestURI.query ?: ""
+                val queryParams = query.split("&").associate {
+                    val parts = it.split("=", limit = 2)
+                    if (parts.size == 2) {
+                        try { URLDecoder.decode(parts[0], StandardCharsets.UTF_8.name()) to URLDecoder.decode(parts[1], StandardCharsets.UTF_8.name()) } catch (_: Exception) { "" to "" }
+                    } else "" to ""
+                }
+                val q = queryParams["q"] ?: ""
+
+                val istNow = ZonedDateTime.now(ZoneId.of("Asia/Kolkata"))
+                val dayOfWeek = istNow.dayOfWeek
+                // Monday, Tuesday -> Nifty; Wednesday, Thursday -> Sensex
+                val indexSymbol = when (dayOfWeek) {
+                    java.time.DayOfWeek.MONDAY, java.time.DayOfWeek.TUESDAY -> "NSE:NIFTY50-INDEX"
+                    java.time.DayOfWeek.WEDNESDAY, java.time.DayOfWeek.THURSDAY -> "BSE:SENSEX-INDEX"
+                    else -> "NSE:NIFTY50-INDEX"
+                }
+
+                val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
+                val symbolsList = org.json.JSONArray()
+
+                if (token.isNotEmpty() && appId.isNotEmpty()) {
+                    val chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, indexSymbol, 30) }
+                    if (chainJson != null && chainJson.has("data")) {
+                        val dataObj = chainJson.getJSONObject("data")
+                        val optionsArr = dataObj.optJSONArray("options")
+                        if (optionsArr != null) {
+                            for (i in 0 until optionsArr.length()) {
+                                val optObj = optionsArr.getJSONObject(i)
+                                val sym = optObj.optString("symbol", "")
+                                if (sym.isNotEmpty() && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
+                                    symbolsList.put(sym)
+                                }
+                            }
+                        } else {
+                            val expiryData = dataObj.optJSONArray("expiryData")
+                            if (expiryData != null && expiryData.length() > 0) {
+                                val currentExpiryObj = expiryData.getJSONObject(0)
+                                val strikesArr = currentExpiryObj.optJSONArray("option_chains") ?: currentExpiryObj.optJSONArray("strikes")
+                                if (strikesArr != null) {
+                                    for (i in 0 until strikesArr.length()) {
+                                        val strikeObj = strikesArr.getJSONObject(i)
+                                        val sym = strikeObj.optString("symbol", "")
+                                        if (sym.isNotEmpty() && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
+                                            symbolsList.put(sym)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val respJson = symbolsList.toString()
+                exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
+                exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+                val bytes = respJson.toByteArray(StandardCharsets.UTF_8)
+                exchange.sendResponseHeaders(200, bytes.size.toLong())
+                exchange.responseBody.use { it.write(bytes) }
             } else {
-                // Serve journal-web/index.html
+                val fileName = if (path == "spread-monitor") "journal-web/spread-monitor.html" else "journal-web/index.html"
                 val file = listOf(
-                    File("journal-web/index.html"),
-                    File("../journal-web/index.html"),
-                    File("test-module/journal-web/index.html")
-                ).firstOrNull { it.exists() } ?: File("journal-web/index.html")
-                val htmlStr = if (file.exists()) file.readText() else "<h1>Options Spread Monitor</h1>"
+                    File(fileName),
+                    File("../$fileName"),
+                    File("test-module/$fileName")
+                ).firstOrNull { it.exists() } ?: File(fileName)
+                val htmlStr = if (file.exists()) file.readText() else "<h1>Page Not Found</h1>"
                 exchange.responseHeaders.set("Content-Type", "text/html; charset=UTF-8")
                 val bytes = htmlStr.toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
@@ -267,7 +343,7 @@ fun main() = runBlocking {
 
     var isFirstRun = true
 
-    // Daily 9:00 AM IST Authentication Scheduler Loop
+    // Daily IST 9:00 AM Authentication & 12:00 PM EoD Session Loop
     while (true) {
         if (!isFirstRun) {
             val now = ZonedDateTime.now(istZone)
@@ -280,25 +356,23 @@ fun main() = runBlocking {
             }
 
             val delayMillis = Duration.between(now, nextRun).toMillis()
-            println("\n[Daemon] Next daily 9:00 AM IST auth scheduled for: $nextRun (in ${delayMillis / 1000 / 60} minutes)")
+            println("\n[Daemon] Next IST session scheduled for: $nextRun (${delayMillis / 1000 / 60} minutes)")
             delay(delayMillis)
         } else {
-            println("\n[Daemon] First startup: Running daily auth routine immediately...")
+            println("\n[Daemon] First startup: Running IST session immediately...")
             isFirstRun = false
         }
 
         // Daily 9:00 AM IST Trigger: Clear token & reset active spread
-        viewModel.clearToken()
-        activeSpread = null
-        spreadStatus = "IDLE"
+        endSessionAndCleanup()
 
         var activeToken = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"]
 
         if (activeToken.isNullOrEmpty()) {
-            println("[Auth] Daily 9 AM: Access token cleared. Waiting for OAuth login...")
+            println("[Auth] Daily 9 AM IST: Access token cleared. Waiting for OAuth login...")
             viewModel.prepareLoginUrl(appId, redirectUri)
             val loginUrl = viewModel.authState.value.loginUrl
-            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Daily 9:00 AM Auth Required! Access token cleared. Please login & authorize:\n$loginUrl")
+            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Daily 9:00 AM IST Auth Required! Access token cleared. Please login & authorize:\n$loginUrl")
 
             authCodeDeferred = CompletableDeferred()
             val authCode = try {
@@ -311,7 +385,7 @@ fun main() = runBlocking {
                 viewModel.authenticateWithAuthCode(appId, secretKey, authCode)
                 val finalState = viewModel.authState.value
                 if (finalState.accessToken != null) {
-                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Daily Access Token acquired successfully via web callback!")
+                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Daily 9:00 AM IST Access Token acquired successfully via web callback!")
                 } else {
                     TelegramNotifier.sendAlert("❌ [Fyers Railway Daemon] Token exchange failed: ${finalState.errorMessage}")
                 }
@@ -320,6 +394,55 @@ fun main() = runBlocking {
             }
         }
 
-        delay(60 * 60 * 1000L)
+        // Monitor session strictly in IST until 12:00 PM IST or until SL / Target hits
+        val morningCheck = ZonedDateTime.now(istZone)
+        val noonToday = morningCheck.withHour(12).withMinute(0).withSecond(0).withNano(0)
+
+        if (morningCheck.isBefore(noonToday)) {
+            val waitTillNoon = Duration.between(morningCheck, noonToday).toMillis()
+            println("[Daemon] IST Session active until 12:00 PM IST (${waitTillNoon / 1000 / 60} minutes remaining)...")
+
+            val startTime = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startTime < waitTillNoon) {
+                // If SL or Target hit, stop WebSocket immediately and sleep for the rest of the day
+                if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT") {
+                    println("[Daemon] Spread triggered ($spreadStatus). Closing WebSocket and sleeping until tomorrow 9 AM IST...")
+                    endSessionAndCleanup()
+                    break
+                }
+
+                // If 12:00 PM IST reached, stop WebSocket, send EoD alert with final P&L, and sleep until tomorrow 9 AM IST
+                val currentCheck = ZonedDateTime.now(istZone)
+                if (currentCheck.isAfter(noonToday) || currentCheck.isEqual(noonToday)) {
+                    println("[Daemon] 12:00 PM IST reached. Closing WebSocket, sending EoD alert, and sleeping until tomorrow 9:00 AM IST...")
+                    
+                    val spread = activeSpread
+                    val sellCurrent = if (sellLTP > 0.0) sellLTP else (spread?.sellEntry ?: 0.0)
+                    val buyCurrent = if (buyLTP > 0.0) buyLTP else (spread?.buyEntry ?: 0.0)
+                    val qty = spread?.quantity ?: 1
+                    val finalPnl = if (spread != null) ((spread.sellEntry - sellCurrent) + (buyCurrent - spread.buyEntry)) * qty else 0.0
+
+                    spreadStatus = "CLOSED_12PM"
+
+                    if (spread != null) {
+                        val eodMsg = """
+                            📊 [EoD Alert - 12:00 PM IST] Market session closed.
+                            Spread Status: Closed at 12 PM (SL/Target not triggered)
+                            Final PnL: ₹$finalPnl (Qty: $qty)
+                            Sell Leg (${spread.sellSymbol}): ₹${spread.sellEntry} -> ₹$sellCurrent
+                            Buy Leg (${spread.buySymbol}): ₹${spread.buyEntry} -> ₹$buyCurrent
+                        """.trimIndent()
+
+                        CoroutineScope(Dispatchers.IO).launch {
+                            TelegramNotifier.sendAlert(eodMsg)
+                        }
+                    }
+                    endSessionAndCleanup()
+                    break
+                }
+
+                delay(2000L)
+            }
+        }
     }
 }

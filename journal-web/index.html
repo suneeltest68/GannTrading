@@ -1,209 +1,273 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Options Spread Monitor</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .glass-card {
-            background: rgba(15, 23, 42, 0.7);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nightwatch — Strike Ledger & Spread Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#f6f4ef;--sheet:#fffefa;--ink:#202b35;--muted:#707a80;--brass:#a47c42;--line:#e5dfd3;--green:#1c7658;--blue:#285c85;--red:#b91c1c}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif}.wrap{max-width:1000px;margin:auto;padding:14px}.topline{height:5px;background:var(--brass)}header{padding:22px 0 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.eyebrow{text-transform:uppercase;letter-spacing:.13em;color:var(--brass);font-size:11px;font-weight:800;font-family:'JetBrains Mono',monospace}h1{font-family:Georgia,serif;font-size:27px;font-weight:500;line-height:1.1;margin:5px 0}.layout{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.panel{background:var(--sheet);border:1px solid var(--line);border-radius:0px;padding:20px;box-shadow:none}.panel h2{font-family:Georgia,serif;font-size:20px;font-weight:500;margin:0 0 4px}.sub{color:var(--muted);font-size:12px;margin:0 0 15px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px}.field label{display:block;color:var(--muted);font-size:11px;margin-bottom:5px;font-weight:500}.field input{width:100%;border:1px solid #d9d4ca;background:#fff;border-radius:0px;padding:10px;font:inherit;outline:none;font-family:'JetBrains Mono',monospace}.field input:focus{border-color:var(--brass);box-shadow:none}.readonly{background:#f1eee7!important;color:#4f5a60;font-family:'JetBrains Mono',monospace}.full{grid-column:1/-1}.pillrow{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap;margin-top:14px;overflow-x:auto}.pill{font-size:11px;padding:6px 10px;flex:0 0 auto;background:#f1eee7;border-radius:0px;font-family:'JetBrains Mono',monospace}.outputs{display:grid;gap:14px}.out{min-height:75px;border:1px solid var(--line);border-radius:0px;padding:12px 13px;display:flex;justify-content:space-between;gap:12px;align-items:center}.out span{font-size:13px;color:var(--muted)}.out strong{font-size:22px;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}.out.primary{background:#f3f6f2;border-color:#d8e5d9}.out.primary strong{color:var(--green)}.formula{font-size:11px;color:var(--muted);padding:8px 0 0}.btnrow{display:flex;gap:8px;margin-top:16px}.btn{border:0;border-radius:0px;padding:11px 14px;font:inherit;font-weight:700;cursor:pointer;background:var(--ink);color:white;width:100%}.btn.secondary{background:#eee9df;color:var(--ink)}footer{font-size:11px;color:var(--muted);padding:18px 0 5px}.status{font-size:11px;color:var(--muted);margin-top:12px;text-align:center;font-weight:600;padding:10px;background:#f1eee7;border-radius:0px}
+.autocomplete-dropdown{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:0px;max-height:160px;overflow-y:auto;z-index:100;display:none}
+.autocomplete-item{padding:8px 12px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11px;border-bottom:1px solid #f1eee7}
+.autocomplete-item:hover{background:#f8f6f0}
+@media(max-width:650px){.wrap{padding:14px}.layout{grid-template-columns:1fr}.pillrow{gap:4px}.pill{font-size:9px;padding:5px 6px}h1{font-size:22px}.panel{padding:14px}.out strong{font-size:19px}}
+</style></head><body><div class="topline"></div><main class="wrap">
+<header>
+<div>
+<span class="eyebrow">Nightwatch Trading Systems</span>
+<h1>Strike Ledger & Spread Bot</h1>
+</div>
+<div>
+<a href="/auth" style="font-size:12px; text-decoration:none; color:var(--brass); font-weight:700;">🔐 Fyers Auth</a>
+</div>
+</header>
+
+<div class="layout">
+<!-- COLUMN 1: STRIKE LEDGER & SETUP -->
+<div style="display:grid; gap:16px;">
+<section class="panel">
+<h2>Strike Ledger Inputs</h2>
+<p class="sub">Values auto-feed the Spread SL Bot.</p>
+<div class="fields">
+<div class="field full"><label>Detected date</label><input id="date" class="readonly" readonly></div>
+<div class="field full"><label>Instrument from Excel weekday rule</label><input id="instrument" class="readonly" readonly></div>
+<div class="field"><label>Quantity</label><input id="qty" type="text" inputmode="decimal" placeholder="25"></div>
+<div class="field"><label>Margin (₹)</label><input id="margin" type="text" inputmode="decimal" placeholder="0"></div>
+<div class="field"><label>Buy entry price (₹)</label><input id="buy" type="text" inputmode="decimal" placeholder="45.00"></div>
+<div class="field"><label>Sell entry price (₹)</label><input id="sell" type="text" inputmode="decimal" placeholder="120.00"></div>
+</div>
+<div class="pillrow"><span class="pill" id="weekday">Weekday: —</span><span class="pill" id="slFactor">SL: —</span><span class="pill" id="targetFactor">Target: —</span></div>
+<div class="btnrow"><button class="btn secondary" id="clear">Clear inputs</button></div>
+</section>
+
+<section class="panel">
+<h2>Ledger Outputs</h2>
+<div class="outputs" style="margin-top:10px;">
+<div class="out primary"><span>Sell Strike SL</span><strong id="sellSL">—</strong></div>
+<div class="out primary"><span>Target Profit</span><strong id="target">—</strong></div>
+</div>
+</section>
+</div>
+
+<!-- COLUMN 2: SPREAD CONFIG & LIVE MONITOR -->
+<div style="display:grid; gap:16px;">
+<section class="panel">
+<h2>Spread Symbols</h2>
+<p class="sub">Select option symbols (Auto-search current expiry).</p>
+<form id="spreadForm">
+<div class="fields">
+<div class="field full" style="position:relative;"><label style="color:var(--red); font-weight:700;">🔴 Sell Leg Symbol</label><input id="sellSymbol" type="text" placeholder="Type strike e.g. 22500" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="sellDropdown" class="autocomplete-dropdown"></div></div>
+<div class="field full" style="position:relative;"><label style="color:var(--green); font-weight:700;">🟢 Buy Leg Symbol</label><input id="buySymbol" type="text" placeholder="Type strike e.g. 22400" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="buyDropdown" class="autocomplete-dropdown"></div></div>
+</div>
+<div class="btnrow"><button type="submit" class="btn" style="margin-top:14px;">🚀 Start Monitoring Spread</button></div>
+</form>
+</section>
+
+<section class="panel">
+<h2>Live Spread Status</h2>
+<p class="sub">Real-time LTP ticks & Telegram alerts.</p>
+<div class="outputs">
+<div class="out"><span>Sell Leg (<span id="dispSellSymbol">—</span>)<br><small>Entry: <span id="dispSellEntry">0</span> | SL: <span id="dispSellSL" style="color:var(--red);">0</span></small></span><strong id="dispSellLTP">—</strong></div>
+<div class="out"><span>Buy Leg (<span id="dispBuySymbol">—</span>)<br><small>Entry: <span id="dispBuyEntry">0</span></small></span><strong id="dispBuyLTP">—</strong></div>
+<div class="out primary"><span>Combined PnL (<span id="dispQty">0</span> Qty)<br><small>Target: <span id="dispTarget">₹0</span></small></span><strong id="dispPnL">—</strong></div>
+</div>
+<div class="status" id="statusAlert">⏳ No active spread monitoring.</div>
+</section>
+</div>
+</div>
+
+<footer>Matches weekday formulas, current expiry auto-search, Fyers WebSocket live SL & Target Telegram alerts. All timings in IST.</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const parseNum=id=>{const raw=$(id).value.replace(/,/g,'').trim();return raw===''?null:Number(raw)};
+const n=id=>{const v=parseNum(id);return v!==null&&Number.isFinite(v)?v:null};
+const rupee=x=>x==null||!Number.isFinite(x)?'—':new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(x);
+function getIndiaDate(){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const o={};parts.forEach(p=>o[p.type]=p.value);return `${o.year}-${o.month}-${o.day}`}
+
+let calculatedSellSL = 0;
+let calculatedTarget = 0;
+
+function refresh(){
+ const iso=getIndiaDate();
+ const [y,m,d]=iso.split('-').map(Number);
+ const date=new Date(Date.UTC(y,m-1,d));
+ const jsDay=date.getUTCDay();
+ const excelDay=jsDay===0?1:jsDay+1;
+ const dayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][jsDay];
+ const instrument=(excelDay===2||excelDay===3)?'Nifty':(excelDay===4||excelDay===5)?'Sensex':'—';
+ const expiry=(excelDay===3||excelDay===5);
+ const slMult=expiry?1.8:1.6;
+ const targetMult=expiry?0.8:0.4;
+ $('date').value=iso;
+ $('instrument').value=instrument==='—'?'No instrument for today':instrument;
+ $('weekday').textContent='Weekday: '+dayName;
+ $('slFactor').textContent='SL: '+slMult;
+ $('targetFactor').textContent='Target: '+targetMult;
+ const q=n('qty'),margin=n('margin'),sell=n('sell'),buy=n('buy');
+ const buySL=(buy!==null&&buy>0)?Math.round((buy*slMult+Number.EPSILON)*100)/100:null;
+ const sellSL=(q!==null&&q>0&&margin!==null&&margin>=0&&sell!==null&&sell>0&&buySL!==null)
+   ?sell+(buySL-buy)+(0.01*margin/q):null;
+ const targetValue=(sell!==null&&buy!==null&&q!==null&&q>0)
+   ?(sell-buy)*q*targetMult:null;
+
+ $('sellSL').textContent=rupee(sellSL);
+ $('target').textContent=rupee(targetValue);
+ $('status').textContent=sellSL!==null&&targetValue!==null
+   ?'Calculated using '+dayName+' rules for '+iso+'.'
+   :'Enter quantity, margin, Sell price and Buy price to calculate the two levels.';
+
+ calculatedSellSL = sellSL !== null ? sellSL : 0;
+ calculatedTarget = targetValue !== null ? targetValue : 0;
+}
+
+function formatIndianLive(el){
+ const original=el.value;
+ const caret=el.selectionStart ?? original.length;
+ const before=original.slice(0,caret);
+ const decimalBefore=before.includes('.');
+ const digitsBefore=(before.match(/[0-9]/g)||[]).length;
+ let cleaned=original.replace(/,/g,'').replace(/[^0-9.]/g,'');
+ const firstDot=cleaned.indexOf('.');
+ if(firstDot!==-1) cleaned=cleaned.slice(0,firstDot+1)+cleaned.slice(firstDot+1).replace(/\./g,'.');
+ const parts=cleaned.split('.');
+ let integer=parts[0]||'';
+ if(integer.length>3) integer=integer.slice(0,-3).replace(/\B(?=(\d{2})+(?!\d))/g,',')+','+integer.slice(-3);
+ const formatted=integer+(parts.length>1?'.'+parts.slice(1).join(''):'');
+ el.value=formatted;
+ let pos=0,count=0,seenDot=false;
+ while(pos<formatted.length && (count<digitsBefore || (decimalBefore && !seenDot))){
+   if(/[0-9]/.test(formatted[pos])) count++;
+   if(formatted[pos]==='.') seenDot=true;
+   pos++;
+ }
+ el.setSelectionRange(pos,pos);
+}
+
+['qty','margin','sell','buy'].forEach(id=>{
+ $(id).addEventListener('input',()=>{formatIndianLive($(id));refresh()});
+});
+$('clear').onclick=()=>{['qty','margin','sell','buy'].forEach(id=>$(id).value='');refresh()};
+
+// Autocomplete for option symbols
+async function setupAutocomplete(inputId, dropdownId) {
+    const input = $(inputId);
+    const dropdown = $(dropdownId);
+    let timeout = null;
+
+    input.addEventListener('input', () => {
+        clearTimeout(timeout);
+        const query = input.value.trim();
+        if (query.length < 1) {
+            dropdown.style.display = 'none';
+            return;
         }
-        .glass-input {
-            background: rgba(2, 6, 23, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(8px);
-        }
-        .glass-input:focus {
-            border-color: rgba(99, 102, 241, 0.8);
-            box-shadow: 0 0 15px rgba(99, 102, 241, 0.25);
-        }
-        .glossy-btn {
-            background: linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%);
-            box-shadow: 0 10px 25px rgba(79, 70, 229, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-            transition: all 0.2s ease;
-        }
-        .glossy-btn:hover {
-            background: linear-gradient(135deg, #2563eb 0%, #4338ca 100%);
-            box-shadow: 0 15px 30px rgba(79, 70, 229, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
-            transform: translateY(-1px);
-        }
-    </style>
-</head>
-<body class="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 min-h-screen font-sans selection:bg-indigo-500 selection:text-white">
-    <div class="container mx-auto px-4 py-10 max-w-4xl">
-        <header class="mb-10 flex justify-between items-center border-b border-slate-800/80 pb-5">
-            <div>
-                <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">📈 Options Spread Monitor</h1>
-                <p class="text-sm text-slate-400 mt-1">Live Tracking with Sell Strike SL & Target Telegram Alerts</p>
-            </div>
-            <div>
-                <a href="/auth" class="glass-card px-5 py-2.5 rounded-xl text-sm font-semibold text-indigo-300 hover:text-white hover:border-indigo-500/50 transition flex items-center gap-2">🔐 Fyers Auth</a>
-            </div>
-        </header>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <!-- Spread Configuration Form -->
-            <div class="glass-card rounded-2xl p-7">
-                <h2 class="text-lg font-bold mb-5 text-slate-200 flex items-center gap-2">⚙️ Spread Setup</h2>
-                <form id="spreadForm" class="space-y-5">
-                    <!-- Sell Leg -->
-                    <div>
-                        <h3 class="text-xs font-bold text-red-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">🔴 Sell Leg (Short)</h3>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1.5 font-medium">Sell Symbol</label>
-                                <input type="text" id="sellSymbol" placeholder="NSE:NIFTY24OCT24500PE" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm uppercase text-slate-100 outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1.5 font-medium">Entry Price (₹)</label>
-                                <input type="number" step="0.05" id="sellEntry" placeholder="120.00" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm text-slate-100 outline-none">
-                            </div>
-                        </div>
-                        <div class="mt-3.5">
-                            <label class="block text-xs text-red-300 mb-1.5 font-medium">Sell Strike Stop Loss (SL) Price (₹)</label>
-                            <input type="number" step="0.05" id="sellSL" placeholder="180.00" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm text-slate-100 outline-none border-red-900/40 focus:border-red-500/80">
-                        </div>
-                    </div>
-
-                    <!-- Buy Leg -->
-                    <div class="border-t border-slate-800/80 pt-4">
-                        <h3 class="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">🟢 Buy Leg (Hedge)</h3>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1.5 font-medium">Buy Symbol</label>
-                                <input type="text" id="buySymbol" placeholder="NSE:NIFTY24OCT24000PE" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm uppercase text-slate-100 outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1.5 font-medium">Entry Price (₹)</label>
-                                <input type="number" step="0.05" id="buyEntry" placeholder="45.00" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm text-slate-100 outline-none">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Target -->
-                    <div class="border-t border-slate-800/80 pt-4">
-                        <label class="block text-xs text-emerald-300 mb-1.5 font-medium">Target Profit (₹)</label>
-                        <input type="number" step="1" id="targetProfit" placeholder="5000" required class="glass-input w-full rounded-xl px-4 py-2.5 text-sm text-slate-100 outline-none border-emerald-900/40 focus:border-emerald-500/80">
-                    </div>
-
-                    <button type="submit" class="glossy-btn w-full text-white font-bold py-3 rounded-xl text-sm tracking-wide mt-2">
-                        🚀 Start Monitoring Spread
-                    </button>
-                </form>
-            </div>
-
-            <!-- Live Monitoring Dashboard -->
-            <div class="space-y-6">
-                <div class="glass-card rounded-2xl p-7">
-                    <h2 class="text-lg font-bold mb-5 text-slate-200 flex items-center gap-2">📊 Live Status</h2>
-                    <div id="statusAlert" class="mb-5 p-3.5 rounded-xl text-sm font-semibold bg-slate-900/80 text-slate-400 border border-slate-800 text-center backdrop-blur-md">
-                        ⏳ No active spread monitoring.
-                    </div>
-
-                    <div class="space-y-4 text-sm">
-                        <div class="glass-input p-4 rounded-xl border border-slate-800/80">
-                            <div class="flex justify-between mb-1.5">
-                                <span class="text-slate-400 font-medium">Sell Leg (<span id="dispSellSymbol" class="text-slate-200">-</span>)</span>
-                                <span id="dispSellLTP" class="font-mono font-bold text-red-400 text-base">₹0.00</span>
-                            </div>
-                            <div class="flex justify-between text-xs text-slate-400">
-                                <span>Entry: <span id="dispSellEntry" class="text-slate-300">0</span> | SL: <span id="dispSellSL" class="text-red-300 font-semibold">0</span></span>
-                                <span id="dispSellStatus" class="font-semibold text-slate-400">Waiting...</span>
-                            </div>
-                        </div>
-
-                        <div class="glass-input p-4 rounded-xl border border-slate-800/80">
-                            <div class="flex justify-between mb-1.5">
-                                <span class="text-slate-400 font-medium">Buy Leg (<span id="dispBuySymbol" class="text-slate-200">-</span>)</span>
-                                <span id="dispBuyLTP" class="font-mono font-bold text-emerald-400 text-base">₹0.00</span>
-                            </div>
-                            <div class="flex justify-between text-xs text-slate-400">
-                                <span>Entry: <span id="dispBuyEntry" class="text-slate-300">0</span></span>
-                                <span class="text-slate-500">Hedge Leg</span>
-                            </div>
-                        </div>
-
-                        <div class="glass-input p-4 rounded-xl border border-slate-800/80 flex justify-between items-center bg-gradient-to-r from-slate-900/80 to-indigo-950/40">
-                            <div>
-                                <span class="text-slate-400 text-xs font-medium block">Combined PnL</span>
-                                <span id="dispPnL" class="font-mono font-bold text-xl text-slate-200">₹0.00</span>
-                            </div>
-                            <div class="text-right">
-                                <span class="text-slate-400 text-xs font-medium block">Target Profit</span>
-                                <span id="dispTarget" class="font-mono font-bold text-lg text-emerald-400">₹0</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        document.getElementById('spreadForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const data = {
-                sellSymbol: document.getElementById('sellSymbol').value.trim().toUpperCase(),
-                sellEntry: parseFloat(document.getElementById('sellEntry').value),
-                sellSL: parseFloat(document.getElementById('sellSL').value),
-                buySymbol: document.getElementById('buySymbol').value.trim().toUpperCase(),
-                buyEntry: parseFloat(document.getElementById('buyEntry').value),
-                targetProfit: parseFloat(document.getElementById('targetProfit').value)
-            };
-
-            const res = await fetch('/api/start-spread', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            const json = await res.json();
-            if (res.ok) {
-                alert('Spread monitoring started successfully!');
-                pollStatus();
-            } else {
-                alert('Error: ' + (json.message || 'Failed to start'));
-            }
-        });
-
-        async function pollStatus() {
+        timeout = setTimeout(async () => {
             try {
-                const res = await fetch('/api/spread-status');
-                const data = await res.json();
-                if (data.active) {
-                    document.getElementById('dispSellSymbol').innerText = data.sellSymbol;
-                    document.getElementById('dispSellLTP').innerText = '₹' + data.sellLTP.toFixed(2);
-                    document.getElementById('dispSellEntry').innerText = '₹' + data.sellEntry;
-                    document.getElementById('dispSellSL').innerText = '₹' + data.sellSL;
-
-                    document.getElementById('dispBuySymbol').innerText = data.buySymbol;
-                    document.getElementById('dispBuyLTP').innerText = '₹' + data.buyLTP.toFixed(2);
-                    document.getElementById('dispBuyEntry').innerText = '₹' + data.buyEntry;
-
-                    document.getElementById('dispPnL').innerText = '₹' + data.pnl.toFixed(2);
-                    document.getElementById('dispPnL').className = data.pnl >= 0 ? 'font-mono font-bold text-xl text-emerald-400' : 'font-mono font-bold text-xl text-red-400';
-                    document.getElementById('dispTarget').innerText = '₹' + data.targetProfit;
-
-                    const alertBox = document.getElementById('statusAlert');
-                    if (data.status === 'SL_HIT') {
-                        alertBox.className = 'mb-5 p-3.5 rounded-xl text-sm font-semibold bg-red-950/80 text-red-300 border border-red-800 text-center animate-pulse backdrop-blur-md';
-                        alertBox.innerText = '🚨 SELL LEG STOP LOSS HIT! Telegram alert sent.';
-                    } else if (data.status === 'TARGET_HIT') {
-                        alertBox.className = 'mb-5 p-3.5 rounded-xl text-sm font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800 text-center animate-pulse backdrop-blur-md';
-                        alertBox.innerText = '🎯 TARGET PROFIT REACHED! Telegram alert sent.';
-                    } else {
-                        alertBox.className = 'mb-5 p-3.5 rounded-xl text-sm font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 text-center backdrop-blur-md';
-                        alertBox.innerText = '🟢 Monitoring Active...';
-                    }
+                const res = await fetch('/api/search-symbols?q=' + encodeURIComponent(query));
+                const symbols = await res.json();
+                if (symbols.length > 0) {
+                    dropdown.innerHTML = symbols.map(s => `<div class="autocomplete-item" onclick="selectSymbol('${inputId}', '${dropdownId}', '${s}')">${s}</div>`).join('');
+                    dropdown.style.display = 'block';
+                } else {
+                    dropdown.style.display = 'none';
                 }
-            } catch (e) {}
-        }
+            } catch(e) {
+                dropdown.style.display = 'none';
+            }
+        }, 200);
+    });
 
-        setInterval(pollStatus, 1500);
-    </script>
-</body>
-</html>
+    document.addEventListener('click', (e) => {
+        if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+            dropdown.style.display = 'none';
+        }
+    });
+}
+
+function selectSymbol(inputId, dropdownId, symbol) {
+    $(inputId).value = symbol;
+    $(dropdownId).style.display = 'none';
+}
+
+setupAutocomplete('sellSymbol', 'sellDropdown');
+setupAutocomplete('buySymbol', 'buyDropdown');
+
+document.getElementById('spreadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = n('qty');
+    const buy = n('buy');
+    const sell = n('sell');
+
+    if (q === null || buy === null || sell === null || calculatedSellSL <= 0) {
+        alert('Please enter Quantity, Buy entry, and Sell entry in the Strike Ledger first so SL & Target can be calculated.');
+        return;
+    }
+
+    const data = {
+        sellSymbol: document.getElementById('sellSymbol').value.trim().toUpperCase(),
+        sellEntry: sell,
+        sellSL: calculatedSellSL,
+        buySymbol: document.getElementById('buySymbol').value.trim().toUpperCase(),
+        buyEntry: buy,
+        targetProfit: calculatedTarget,
+        quantity: q
+    };
+
+    const res = await fetch('/api/start-spread', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    const json = await res.json();
+    if (res.ok) {
+        alert('Spread monitoring started successfully!');
+        pollStatus();
+    } else {
+        alert('Error: ' + (json.message || 'Failed to start'));
+    }
+});
+
+async function pollStatus() {
+    try {
+        const res = await fetch('/api/spread-status');
+        const data = await res.json();
+        if (data.active) {
+            document.getElementById('dispSellSymbol').innerText = data.sellSymbol;
+            document.getElementById('dispSellLTP').innerText = '₹' + data.sellLTP.toFixed(2);
+            document.getElementById('dispSellEntry').innerText = data.sellEntry;
+            document.getElementById('dispSellSL').innerText = data.sellSL.toFixed(2);
+
+            document.getElementById('dispBuySymbol').innerText = data.buySymbol;
+            document.getElementById('dispBuyLTP').innerText = '₹' + data.buyLTP.toFixed(2);
+            document.getElementById('dispBuyEntry').innerText = data.buyEntry;
+
+            document.getElementById('dispQty').innerText = data.quantity;
+            document.getElementById('dispPnL').innerText = '₹' + data.pnl.toFixed(2);
+            document.getElementById('dispTarget').innerText = '₹' + Math.round(data.targetProfit);
+
+            const alertBox = document.getElementById('statusAlert');
+            if (data.status === 'SL_HIT') {
+                alertBox.style.background = '#fdf2f2';
+                alertBox.style.color = '#b91c1c';
+                alertBox.innerText = '🚨 SELL LEG STOP LOSS HIT! Telegram alert sent.';
+            } else if (data.status === 'TARGET_HIT') {
+                alertBox.style.background = '#f3f6f2';
+                alertBox.style.color = '#1c7658';
+                alertBox.innerText = '🎯 TARGET PROFIT REACHED! Telegram alert sent.';
+            } else if (data.status === 'CLOSED_12PM') {
+                alertBox.style.background = '#fff3cd';
+                alertBox.style.color = '#856404';
+                alertBox.innerText = '⏰ 12:00 PM IST EoD Reached. Session closed.';
+            } else {
+                alertBox.style.background = '#e2f0d9';
+                alertBox.style.color = '#1c7658';
+                alertBox.innerText = '🟢 Monitoring Active...';
+            }
+        }
+    } catch (e) {}
+}
+
+refresh();
+setInterval(refresh,60000);
+setInterval(pollStatus, 1500);
+</script></body></html>
