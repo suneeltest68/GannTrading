@@ -280,37 +280,51 @@ fun main() = runBlocking {
                 val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
                 val symbolsList = org.json.JSONArray()
 
+                println("[SearchSymbols] Query: '$q', Index: $indexSymbol, Token present: ${token.isNotEmpty()}")
+
                 if (token.isNotEmpty() && appId.isNotEmpty()) {
-                    val chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, indexSymbol, 30) }
+                    val chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, indexSymbol, 40) }
+                    println("[SearchSymbols] ChainJson response: ${chainJson?.toString()?.take(300)}")
                     if (chainJson != null && chainJson.has("data")) {
                         val dataObj = chainJson.getJSONObject("data")
-                        val optionsArr = dataObj.optJSONArray("options")
-                        if (optionsArr != null) {
-                            for (i in 0 until optionsArr.length()) {
-                                val optObj = optionsArr.getJSONObject(i)
-                                val sym = optObj.optString("symbol", "")
-                                if (sym.isNotEmpty() && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
-                                    symbolsList.put(sym)
-                                }
-                            }
-                        } else {
-                            val expiryData = dataObj.optJSONArray("expiryData")
-                            if (expiryData != null && expiryData.length() > 0) {
-                                val currentExpiryObj = expiryData.getJSONObject(0)
-                                val strikesArr = currentExpiryObj.optJSONArray("option_chains") ?: currentExpiryObj.optJSONArray("strikes")
-                                if (strikesArr != null) {
-                                    for (i in 0 until strikesArr.length()) {
-                                        val strikeObj = strikesArr.getJSONObject(i)
-                                        val sym = strikeObj.optString("symbol", "")
-                                        if (sym.isNotEmpty() && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
-                                            symbolsList.put(sym)
+                        
+                        fun extractSymbols(jsonObj: JSONObject) {
+                            val keys = jsonObj.keys()
+                            while (keys.hasNext()) {
+                                val key = keys.next()
+                                val value = jsonObj.opt(key)
+                                if (value is org.json.JSONArray) {
+                                    for (i in 0 until value.length()) {
+                                        val item = value.opt(i)
+                                        if (item is JSONObject) {
+                                            val sym = item.optString("symbol", "")
+                                            if (sym.isNotEmpty() && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
+                                                var exists = false
+                                                for (j in 0 until symbolsList.length()) {
+                                                    if (symbolsList.getString(j) == sym) exists = true
+                                                }
+                                                if (!exists) symbolsList.put(sym)
+                                            } else {
+                                                extractSymbols(item)
+                                            }
+                                        } else if (item is String && item.contains(":") && (q.isEmpty() || item.contains(q, ignoreCase = true))) {
+                                            var exists = false
+                                            for (j in 0 until symbolsList.length()) {
+                                                if (symbolsList.getString(j) == item) exists = true
+                                            }
+                                            if (!exists) symbolsList.put(item)
                                         }
                                     }
+                                } else if (value is JSONObject) {
+                                    extractSymbols(value)
                                 }
                             }
                         }
+                        extractSymbols(dataObj)
                     }
                 }
+
+                println("[SearchSymbols] Found ${symbolsList.length()} symbols matching '$q'")
 
                 val respJson = symbolsList.toString()
                 exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")

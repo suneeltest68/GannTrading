@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nightwatch — Strike Ledger & Spread Monitor</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nightwatch — Unified Trading & Spread Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -58,7 +58,8 @@
 <div class="field full" style="position:relative;"><label style="color:var(--red); font-weight:700;">🔴 Sell Leg Symbol</label><input id="sellSymbol" type="text" placeholder="Type strike e.g. 22500" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="sellDropdown" class="autocomplete-dropdown"></div></div>
 <div class="field full" style="position:relative;"><label style="color:var(--green); font-weight:700;">🟢 Buy Leg Symbol</label><input id="buySymbol" type="text" placeholder="Type strike e.g. 22400" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="buyDropdown" class="autocomplete-dropdown"></div></div>
 </div>
-<div class="btnrow"><button type="submit" class="btn" style="margin-top:14px;">🚀 Start Monitoring Spread</button></div>
+<div id="fetchStatus" style="font-size:11px; color:var(--muted); margin-top:8px; font-family:'JetBrains Mono',monospace; min-height:16px;"></div>
+<div class="btnrow"><button type="submit" class="btn" style="margin-top:10px;">🚀 Start Monitoring Spread</button></div>
 </form>
 </section>
 
@@ -148,7 +149,7 @@ function formatIndianLive(el){
 });
 $('clear').onclick=()=>{['qty','margin','sell','buy'].forEach(id=>$(id).value='');refresh()};
 
-// Autocomplete for option symbols
+// Autocomplete for option symbols with status feedback
 async function setupAutocomplete(inputId, dropdownId) {
     const input = $(inputId);
     const dropdown = $(dropdownId);
@@ -159,8 +160,10 @@ async function setupAutocomplete(inputId, dropdownId) {
         const query = input.value.trim();
         if (query.length < 1) {
             dropdown.style.display = 'none';
+            $('fetchStatus').textContent = '';
             return;
         }
+        $('fetchStatus').textContent = '🔄 Fetching Fyers symbols...';
         timeout = setTimeout(async () => {
             try {
                 const res = await fetch('/api/search-symbols?q=' + encodeURIComponent(query));
@@ -168,13 +171,16 @@ async function setupAutocomplete(inputId, dropdownId) {
                 if (symbols.length > 0) {
                     dropdown.innerHTML = symbols.map(s => `<div class="autocomplete-item" onclick="selectSymbol('${inputId}', '${dropdownId}', '${s}')">${s}</div>`).join('');
                     dropdown.style.display = 'block';
+                    $('fetchStatus').textContent = '✅ Fyers symbols fetched (' + symbols.length + ' found)';
                 } else {
                     dropdown.style.display = 'none';
+                    $('fetchStatus').textContent = '⚠️ No symbols found for query';
                 }
             } catch(e) {
                 dropdown.style.display = 'none';
+                $('fetchStatus').textContent = '❌ Error fetching symbols';
             }
-        }, 200);
+        }, 300);
     });
 
     document.addEventListener('click', (e) => {
@@ -187,6 +193,7 @@ async function setupAutocomplete(inputId, dropdownId) {
 function selectSymbol(inputId, dropdownId, symbol) {
     $(inputId).value = symbol;
     $(dropdownId).style.display = 'none';
+    $('fetchStatus').textContent = '✅ Symbol selected: ' + symbol;
 }
 
 setupAutocomplete('sellSymbol', 'sellDropdown');
