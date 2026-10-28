@@ -165,8 +165,10 @@ fun main() = runBlocking {
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
             } else if (path == "/api/start-spread") {
+                println("[StartSpread] Received POST request to /api/start-spread")
                 if (exchange.requestMethod.equals("POST", ignoreCase = true)) {
                     val body = exchange.requestBody.bufferedReader().use { it.readText() }
+                    println("[StartSpread] Raw body: $body")
                     val json = JSONObject(body)
                     val config = SpreadConfig(
                         sellSymbol = json.optString("sellSymbol"),
@@ -177,6 +179,7 @@ fun main() = runBlocking {
                         targetProfit = json.optDouble("targetProfit"),
                         quantity = json.optInt("quantity", 25)
                     )
+                    println("[StartSpread] Parsed config successfully: $config")
 
                     activeSpread = config
                     sellLTP = config.sellEntry
@@ -186,6 +189,19 @@ fun main() = runBlocking {
 
                     // Start WebSocket streaming for both symbols using current active token
                     val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
+                    println("[StartSpread] Access token present: ${token.isNotEmpty()} (AppId: $appId)")
+
+                    if (token.isEmpty()) {
+                        wsConnectionStatus = "FAILED"
+                        val errBytes = "Error: Fyers access token is missing. Please click 'Fyers Auth' at the top right to login and authorize first.".toByteArray(StandardCharsets.UTF_8)
+                        exchange.responseHeaders.set("Content-Type", "text/plain; charset=UTF-8")
+                        exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+                        exchange.sendResponseHeaders(400, errBytes.size.toLong())
+                        exchange.responseBody.use { it.write(errBytes) }
+                        println("[StartSpread] Rejected 400: Access token is empty.")
+                        return@createContext
+                    }
+
                     if (token.isNotEmpty()) {
                         activeWsClient?.stop()
                         activeWsClient = FyersSdkWebSocketClient(
@@ -193,6 +209,7 @@ fun main() = runBlocking {
                             accessToken = token,
                             subscribedSymbols = listOf(config.sellSymbol, config.buySymbol),
                             onTick = { symbol, ltp ->
+                                println("[Tick Received] $symbol -> LTP: $ltp")
                                 val spread = activeSpread ?: return@FyersSdkWebSocketClient
                                 if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT" || spreadStatus == "CLOSED_12PM") return@FyersSdkWebSocketClient
 
@@ -228,13 +245,21 @@ fun main() = runBlocking {
                                     endSessionAndCleanup()
                                 }
                             },
-                            onOpen = { wsConnectionStatus = "CONNECTED" },
-                            onError = { wsConnectionStatus = "FAILED" },
-                            onClose = { wsConnectionStatus = "CLOSED" }
+                            onOpen = { 
+                                wsConnectionStatus = "CONNECTED"
+                                println("[WebSocket] Connected successfully!")
+                            },
+                            onError = { 
+                                wsConnectionStatus = "FAILED"
+                                println("[WebSocket] Connection error / failure!")
+                            },
+                            onClose = { 
+                                wsConnectionStatus = "CLOSED"
+                                println("[WebSocket] Connection closed.")
+                            }
                         )
                         activeWsClient?.start()
-                    } else {
-                        wsConnectionStatus = "FAILED"
+                        println("[StartSpread] WebSocket client started successfully for symbols: ${config.sellSymbol}, ${config.buySymbol}")
                     }
 
                     val resp = JSONObject().put("status", "success").toString()
