@@ -8,7 +8,7 @@
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif}.wrap{max-width:1000px;margin:auto;padding:14px}.topline{height:5px;background:var(--brass)}header{padding:22px 0 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.eyebrow{text-transform:uppercase;letter-spacing:.13em;color:var(--brass);font-size:11px;font-weight:800;font-family:'JetBrains Mono',monospace}h1{font-family:Georgia,serif;font-size:27px;font-weight:500;line-height:1.1;margin:5px 0}.layout{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.panel{background:var(--sheet);border:1px solid var(--line);border-radius:0px;padding:20px;box-shadow:none}.panel h2{font-family:Georgia,serif;font-size:20px;font-weight:500;margin:0 0 4px}.sub{color:var(--muted);font-size:12px;margin:0 0 15px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px}.field label{display:block;color:var(--muted);font-size:11px;margin-bottom:5px;font-weight:500}.field input{width:100%;border:1px solid #d9d4ca;background:#fff;border-radius:0px;padding:10px;font:inherit;outline:none;font-family:'JetBrains Mono',monospace}.field input:focus{border-color:var(--brass);box-shadow:none}.readonly{background:#f1eee7!important;color:#4f5a60;font-family:'JetBrains Mono',monospace}.full{grid-column:1/-1}.pillrow{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap;margin-top:14px;overflow-x:auto}.pill{font-size:11px;padding:6px 10px;flex:0 0 auto;background:#f1eee7;border-radius:0px;font-family:'JetBrains Mono',monospace}.outputs{display:grid;gap:14px}.out{min-height:75px;border:1px solid var(--line);border-radius:0px;padding:12px 13px;display:flex;justify-content:space-between;gap:12px;align-items:center}.out span{font-size:13px;color:var(--muted)}.out strong{font-size:22px;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}.out.primary{background:#f3f6f2;border-color:#d8e5d9}.out.primary strong{color:var(--green)}.formula{font-size:11px;color:var(--muted);padding:8px 0 0}.btnrow{display:flex;gap:8px;margin-top:16px}.btn{border:0;border-radius:0px;padding:11px 14px;font:inherit;font-weight:700;cursor:pointer;background:var(--ink);color:white;width:100%}.btn.secondary{background:#eee9df;color:var(--ink)}footer{font-size:11px;color:var(--muted);padding:18px 0 5px}.status{font-size:11px;color:var(--muted);margin-top:12px;text-align:center;font-weight:600;padding:10px;background:#f1eee7;border-radius:0px}
 
 /* Elevated distinct autocomplete dropdown */
-.autocomplete-dropdown{position:absolute;top:100%;left:0;right:0;background:#fffefa;border:2px solid var(--brass);border-radius:0px;max-height:180px;overflow-y:auto;z-index:100;display:none;box-shadow:0 12px 30px rgba(32,43,53,0.25)}
+.autocomplete-dropdown{position:absolute;top:100%;left:0;right:0;background:#fffefa;border:2px solid var(--brass);border-radius:0px;max-height:180px;overflow-y:auto;z-index:999;display:none;box-shadow:0 12px 30px rgba(32,43,53,0.25)}
 .autocomplete-item{padding:9px 13px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11px;border-bottom:1px solid #e5dfd3;color:var(--ink)}
 .autocomplete-item:hover{background:#f1eee7;color:var(--brass);font-weight:700}
 
@@ -66,12 +66,12 @@
     <button type="button" class="strat-btn active" id="btnBullPut" onclick="setStrategy('BullPut')">Bull Put Spread (PE)</button>
     <button type="button" class="strat-btn" id="btnBearCall" onclick="setStrategy('BearCall')">Bear Call Spread (CE)</button>
 </div>
-<form id="spreadForm">
+<form id="spreadForm" onsubmit="event.preventDefault(); startMonitoring();">
 <div class="fields">
 <div class="field full" style="position:relative;"><label style="color:var(--red); font-weight:700;">🔴 Sell Leg Symbol</label><input id="sellSymbol" type="text" placeholder="Type strike e.g. 74200" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="sellDropdown" class="autocomplete-dropdown"></div></div>
 <div class="field full" style="position:relative;"><label style="color:var(--green); font-weight:700;">🟢 Buy Leg Symbol</label><input id="buySymbol" type="text" placeholder="Type strike e.g. 74500" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="buyDropdown" class="autocomplete-dropdown"></div></div>
 </div>
-<div class="btnrow"><button type="submit" class="btn" style="margin-top:14px;">🚀 Start Monitoring Spread</button></div>
+<div class="btnrow"><button type="button" onclick="startMonitoring()" class="btn" style="margin-top:14px;">🚀 Start Monitoring Spread</button></div>
 </form>
 </section>
 
@@ -217,14 +217,14 @@ function selectSymbol(inputId, dropdownId, symbol) {
 setupAutocomplete('sellSymbol', 'sellDropdown');
 setupAutocomplete('buySymbol', 'buyDropdown');
 
-document.getElementById('spreadForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
+async function startMonitoring() {
+    console.log('startMonitoring() triggered!');
     refresh();
     const q = n('qty');
     const buy = n('buy');
     const sell = n('sell');
 
-    console.log('Form submit triggered. Qty:', q, 'Buy:', buy, 'Sell:', sell, 'SL:', calculatedSellSL, 'Target:', calculatedTarget);
+    console.log('Validated inputs -> Qty:', q, 'Buy:', buy, 'Sell:', sell, 'SL:', calculatedSellSL, 'Target:', calculatedTarget);
 
     if (q === null || buy === null || sell === null || calculatedSellSL <= 0) {
         alert('ERROR: Please enter valid Quantity, Buy entry, and Sell entry in Strike Ledger first.');
@@ -273,7 +273,7 @@ document.getElementById('spreadForm').addEventListener('submit', async (e) => {
         console.error('Start-spread fetch exception:', err);
         alert('NETWORK ERROR: ' + err.message);
     }
-});
+}
 
 async function pollStatus() {
     try {
@@ -309,7 +309,7 @@ async function pollStatus() {
             } else {
                 alertBox.style.background = '#e2f0d9';
                 alertBox.style.color = '#1c7658';
-                alertBox.innerText = '🟢 Monitoring Active...';
+                alertBox.innerText = '🟢 Monitoring Active...`;
             }
         }
     } catch (e) {}
