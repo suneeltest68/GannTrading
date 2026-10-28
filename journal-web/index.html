@@ -222,15 +222,19 @@ document.getElementById('spreadForm').addEventListener('submit', async (e) => {
     const sell = n('sell');
 
     if (q === null || buy === null || sell === null || calculatedSellSL <= 0) {
-        alert('Please enter Quantity, Buy entry, and Sell entry in the Strike Ledger first so SL & Target can be calculated.');
+        alert('ERROR: Please enter valid Quantity, Buy entry, and Sell entry in Strike Ledger first.');
         return;
     }
 
     const sellSym = document.getElementById('sellSymbol').value.replace(/\s+/g, '').toUpperCase();
     const buySym = document.getElementById('buySymbol').value.replace(/\s+/g, '').toUpperCase();
 
-    if (!sellSym || !buySym) {
-        alert('Please enter both Sell Leg Symbol and Buy Leg Symbol.');
+    if (!sellSym) {
+        alert('ERROR: Please enter or select a Sell Leg Symbol.');
+        return;
+    }
+    if (!buySym) {
+        alert('ERROR: Please enter or select a Buy Leg Symbol.');
         return;
     }
 
@@ -252,13 +256,13 @@ document.getElementById('spreadForm').addEventListener('submit', async (e) => {
         });
         const text = await res.text();
         if (res.ok) {
-            alert('Spread monitoring started successfully!');
+            alert('SUCCESS: Spread monitoring started successfully!');
             pollStatus();
         } else {
-            alert('Server Error: ' + text);
+            alert('SERVER ERROR (' + res.status + '): ' + text);
         }
     } catch (err) {
-        alert('Network Error: ' + err.message);
+        alert('NETWORK ERROR: ' + err.message);
     }
 });
 

@@ -37,6 +37,7 @@ var activeSpread: SpreadConfig? = null
 var sellLTP: Double = 0.0
 var buyLTP: Double = 0.0
 var spreadStatus: String = "IDLE" // IDLE, MONITORING, SL_HIT, TARGET_HIT, CLOSED_12PM
+var wsConnectionStatus: String = "IDLE" // IDLE, WAITING, CONNECTED, FAILED, CLOSED
 var activeWsClient: FyersSdkWebSocketClient? = null
 
 fun main() = runBlocking {
@@ -56,7 +57,7 @@ fun main() = runBlocking {
     val istZone = ZoneId.of("Asia/Kolkata")
 
     println("==================================================")
-    println("🚀 OPTIONS SPREAD MONITOR + STRICT SESSION END SAFETY")
+    println("🚀 OPTIONS SPREAD MONITOR + WS STATUS TOAST")
     println("==================================================")
 
     val appId = System.getenv("FYERS_APP_ID") ?: dotenv["FYERS_APP_ID"]
@@ -74,6 +75,7 @@ fun main() = runBlocking {
         println("[Daemon] Session ended. Closing all WebSockets, clearing tokens, and deleting cache files...")
         activeWsClient?.stop()
         activeWsClient = null
+        wsConnectionStatus = "CLOSED"
         viewModel.clearToken()
         File("token.json").takeIf { it.exists() }?.delete()
         File("fyers_token.json").takeIf { it.exists() }?.delete()
@@ -180,48 +182,59 @@ fun main() = runBlocking {
                     sellLTP = config.sellEntry
                     buyLTP = config.buyEntry
                     spreadStatus = "MONITORING"
+                    wsConnectionStatus = "WAITING"
 
                     // Start WebSocket streaming for both symbols using current active token
                     val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
                     if (token.isNotEmpty()) {
                         activeWsClient?.stop()
-                        activeWsClient = FyersSdkWebSocketClient(appId, token, listOf(config.sellSymbol, config.buySymbol)) { symbol, ltp ->
-                            val spread = activeSpread ?: return@FyersSdkWebSocketClient
-                            if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT" || spreadStatus == "CLOSED_12PM") return@FyersSdkWebSocketClient
+                        activeWsClient = FyersSdkWebSocketClient(
+                            appId = appId,
+                            accessToken = token,
+                            subscribedSymbols = listOf(config.sellSymbol, config.buySymbol),
+                            onTick = { symbol, ltp ->
+                                val spread = activeSpread ?: return@FyersSdkWebSocketClient
+                                if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT" || spreadStatus == "CLOSED_12PM") return@FyersSdkWebSocketClient
 
-                            if (symbol == spread.sellSymbol) {
-                                sellLTP = ltp
-                                // Check Sell Strike SL
-                                if (ltp >= spread.sellSL) {
-                                    spreadStatus = "SL_HIT"
-                                    val msg = "🚨 [Spread SL HIT!] Sell Leg (${spread.sellSymbol}) hit Stop Loss!\nEntry: ₹${spread.sellEntry} | SL: ₹${spread.sellSL} | Current LTP: ₹$ltp"
+                                if (symbol == spread.sellSymbol) {
+                                    sellLTP = ltp
+                                    // Check Sell Strike SL
+                                    if (ltp >= spread.sellSL) {
+                                        spreadStatus = "SL_HIT"
+                                        val msg = "🚨 [Spread SL HIT!] Sell Leg (${spread.sellSymbol}) hit Stop Loss!\nEntry: ₹${spread.sellEntry} | SL: ₹${spread.sellSL} | Current LTP: ₹$ltp"
+                                        println(msg)
+                                        CoroutineScope(Dispatchers.IO).launch {
+                                            TelegramNotifier.sendAlert(msg)
+                                        }
+                                        endSessionAndCleanup()
+                                    }
+                                } else if (symbol == spread.buySymbol) {
+                                    buyLTP = ltp
+                                }
+
+                                // Calculate spread PnL scaled by quantity
+                                val sellPnl = (spread.sellEntry - sellLTP) * spread.quantity
+                                val buyPnl = (buyLTP - spread.buyEntry) * spread.quantity
+                                val totalPnl = sellPnl + buyPnl
+
+                                // Check Target Profit
+                                if (totalPnl >= spread.targetProfit) {
+                                    spreadStatus = "TARGET_HIT"
+                                    val msg = "🎯 [Spread Target REACHED!] Target profit hit!\nTarget: ₹${spread.targetProfit} | Current PnL: ₹$totalPnl (Qty: ${spread.quantity})"
                                     println(msg)
                                     CoroutineScope(Dispatchers.IO).launch {
                                         TelegramNotifier.sendAlert(msg)
                                     }
                                     endSessionAndCleanup()
                                 }
-                            } else if (symbol == spread.buySymbol) {
-                                buyLTP = ltp
-                            }
-
-                            // Calculate spread PnL scaled by quantity
-                            val sellPnl = (spread.sellEntry - sellLTP) * spread.quantity
-                            val buyPnl = (buyLTP - spread.buyEntry) * spread.quantity
-                            val totalPnl = sellPnl + buyPnl
-
-                            // Check Target Profit
-                            if (totalPnl >= spread.targetProfit) {
-                                spreadStatus = "TARGET_HIT"
-                                val msg = "🎯 [Spread Target REACHED!] Target profit hit!\nTarget: ₹${spread.targetProfit} | Current PnL: ₹$totalPnl (Qty: ${spread.quantity})"
-                                println(msg)
-                                CoroutineScope(Dispatchers.IO).launch {
-                                    TelegramNotifier.sendAlert(msg)
-                                }
-                                endSessionAndCleanup()
-                            }
-                        }
+                            },
+                            onOpen = { wsConnectionStatus = "CONNECTED" },
+                            onError = { wsConnectionStatus = "FAILED" },
+                            onClose = { wsConnectionStatus = "CLOSED" }
+                        )
                         activeWsClient?.start()
+                    } else {
+                        wsConnectionStatus = "FAILED"
                     }
 
                     val resp = JSONObject().put("status", "success").toString()
@@ -251,6 +264,7 @@ fun main() = runBlocking {
                     put("quantity", qty)
                     put("pnl", pnl)
                     put("status", spreadStatus)
+                    put("wsStatus", wsConnectionStatus)
                 }.toString()
 
                 exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
@@ -401,7 +415,7 @@ fun main() = runBlocking {
                 viewModel.authenticateWithAuthCode(appId, secretKey, authCode)
                 val finalState = viewModel.authState.value
                 if (finalState.accessToken != null) {
-                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Daily 9:00 AM IST Access Token acquired successfully via web callback!")
+                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Daily Access Token acquired successfully via web callback!")
                 } else {
                     TelegramNotifier.sendAlert("❌ [Fyers Railway Daemon] Token exchange failed: ${finalState.errorMessage}")
                 }
