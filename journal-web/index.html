@@ -1,28 +1,20 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nightwatch — Strike Ledger & Spread Monitor</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Nightwatch — Short Strangle Positional Bot</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <style>
-:root{--paper:#f6f4ef;--sheet:#fffefa;--ink:#202b35;--muted:#707a80;--brass:#a47c42;--line:#e5dfd3;--green:#1c7658;--blue:#285c85;--red:#b91c1c}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif}.wrap{max-width:1000px;margin:auto;padding:14px}.topline{height:5px;background:var(--brass)}header{padding:22px 0 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.eyebrow{text-transform:uppercase;letter-spacing:.13em;color:var(--brass);font-size:11px;font-weight:800;font-family:'JetBrains Mono',monospace}h1{font-family:Georgia,serif;font-size:27px;font-weight:500;line-height:1.1;margin:5px 0}.layout{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.panel{background:var(--sheet);border:1px solid var(--line);border-radius:0px;padding:20px;box-shadow:none}.panel h2{font-family:Georgia,serif;font-size:20px;font-weight:500;margin:0 0 4px}.sub{color:var(--muted);font-size:12px;margin:0 0 15px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px}.field label{display:block;color:var(--muted);font-size:11px;margin-bottom:5px;font-weight:500}.field input{width:100%;border:1px solid #d9d4ca;background:#fff;border-radius:0px;padding:10px;font:inherit;outline:none;font-family:'JetBrains Mono',monospace}.field input:focus{border-color:var(--brass);box-shadow:none}.readonly{background:#f1eee7!important;color:#4f5a60;font-family:'JetBrains Mono',monospace}.full{grid-column:1/-1}.pillrow{display:flex;gap:6px;flex-wrap:nowrap;white-space:nowrap;margin-top:14px;overflow-x:auto}.pill{font-size:11px;padding:6px 10px;flex:0 0 auto;background:#f1eee7;border-radius:0px;font-family:'JetBrains Mono',monospace}.outputs{display:grid;gap:14px}.out{min-height:75px;border:1px solid var(--line);border-radius:0px;padding:12px 13px;display:flex;justify-content:space-between;gap:12px;align-items:center}.out span{font-size:13px;color:var(--muted)}.out strong{font-size:22px;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}.out.primary{background:#f3f6f2;border-color:#d8e5d9}.out.primary strong{color:var(--green)}.formula{font-size:11px;color:var(--muted);padding:8px 0 0}.btnrow{display:flex;gap:8px;margin-top:16px}.btn{border:0;border-radius:0px;padding:11px 14px;font:inherit;font-weight:700;cursor:pointer;background:var(--ink);color:white;width:100%}.btn.secondary{background:#eee9df;color:var(--ink)}footer{font-size:11px;color:var(--muted);padding:18px 0 5px}.status{font-size:11px;color:var(--muted);margin-top:12px;text-align:center;font-weight:600;padding:10px;background:#f1eee7;border-radius:0px}
-
-/* Elevated distinct autocomplete dropdown */
-.autocomplete-dropdown{position:absolute;top:100%;left:0;right:0;background:#fffefa;border:2px solid var(--brass);border-radius:0px;max-height:180px;overflow-y:auto;z-index:100;display:none;box-shadow:0 12px 30px rgba(32,43,53,0.25)}
+:root{--paper:#f6f4ef;--sheet:#fffefa;--ink:#202b35;--muted:#707a80;--brass:#a47c42;--line:#e5dfd3;--green:#1c7658;--blue:#285c85;--red:#b91c1c;--amber:#b45309}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 'Inter',system-ui,-apple-system,sans-serif}.wrap{max-width:1000px;margin:auto;padding:14px}.topline{height:5px;background:var(--brass)}header{padding:22px 0 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.eyebrow{text-transform:uppercase;letter-spacing:.13em;color:var(--brass);font-size:11px;font-weight:800;font-family:'JetBrains Mono',monospace}h1{font-family:Georgia,serif;font-size:27px;font-weight:500;line-height:1.1;margin:5px 0}.layout{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}.panel{background:var(--sheet);border:1px solid var(--line);border-radius:0px;padding:20px;box-shadow:none}.panel h2{font-family:Georgia,serif;font-size:20px;font-weight:500;margin:0 0 4px}.sub{color:var(--muted);font-size:12px;margin:0 0 15px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:13px}.field label{display:block;color:var(--muted);font-size:11px;margin-bottom:5px;font-weight:500}.field input{width:100%;border:1px solid #d9d4ca;background:#fff;border-radius:0px;padding:10px;font:inherit;outline:none;font-family:'JetBrains Mono',monospace}.field input:focus{border-color:var(--brass);box-shadow:none}.full{grid-column:1/-1}.outputs{display:grid;gap:14px}.out{min-height:75px;border:1px solid var(--line);border-radius:0px;padding:12px 13px;display:flex;justify-content:space-between;gap:12px;align-items:center}.out span{font-size:13px;color:var(--muted)}.out strong{font-size:20px;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums}.out.primary{background:#f3f6f2;border-color:#d8e5d9}.out.primary strong{color:var(--green)}.btn{border:0;border-radius:0px;padding:11px 14px;font:inherit;font-weight:700;cursor:pointer;background:var(--ink);color:white;width:100%}.btn.secondary{background:#b91c1c;color:white;margin-top:8px}.status{font-size:12px;color:var(--ink);margin-top:12px;text-align:center;font-weight:600;padding:12px;background:#f1eee7;border-radius:0px}
+.autocomplete-dropdown{position:absolute;top:100%;left:0;right:0;background:#fffefa;border:2px solid var(--brass);border-radius:0px;max-height:160px;overflow-y:auto;z-index:100;display:none;box-shadow:0 12px 30px rgba(32,43,53,0.25)}
 .autocomplete-item{padding:9px 13px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:11px;border-bottom:1px solid #e5dfd3;color:var(--ink)}
 .autocomplete-item:hover{background:#f1eee7;color:var(--brass);font-weight:700}
-
-/* Strategy Switcher */
-.strategy-switch{display:flex;gap:4px;background:#eee9df;padding:3px;border:1px solid var(--line);margin-bottom:14px}
-.strat-btn{flex:1;border:0;background:transparent;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;color:var(--muted);text-transform:uppercase;transition:all 0.2s}
-.strat-btn.active{background:var(--ink);color:white}
-
-@media(max-width:650px){.wrap{padding:14px}.layout{grid-template-columns:1fr}.pillrow{gap:4px}.pill{font-size:9px;padding:5px 6px}h1{font-size:22px}.panel{padding:14px}.out strong{font-size:19px}}
+@media(max-width:650px){.wrap{padding:14px}.layout{grid-template-columns:1fr}h1{font-size:22px}.panel{padding:14px}.out strong{font-size:17px}}
 </style></head><body><div class="topline"></div><main class="wrap">
 <header>
 <div>
 <span class="eyebrow">Nightwatch Trading Systems</span>
-<h1>Strike Ledger & Spread Bot</h1>
+<h1>Short Strangle Positional Bot</h1>
 </div>
 <div>
 <a href="/auth" style="font-size:12px; text-decoration:none; color:var(--brass); font-weight:700;">🔐 Fyers Auth</a>
@@ -30,149 +22,43 @@
 </header>
 
 <div class="layout">
-<!-- COLUMN 1: STRIKE LEDGER & SETUP -->
-<div style="display:grid; gap:16px;">
 <section class="panel">
-<h2>Strike Ledger Inputs</h2>
-<p class="sub">Values auto-feed the Spread SL Bot.</p>
+<h2>Short Strangle Setup & Adjustment</h2>
+<p class="sub">Nifty Monthly Expiry Positional Strategy & 1:3 Roll Adjustment.</p>
+<form id="strangleForm">
 <div class="fields">
-<div class="field full"><label>Detected date</label><input id="date" class="readonly" readonly></div>
-<div class="field full"><label>Instrument from Excel weekday rule</label><input id="instrument" class="readonly" readonly></div>
-<div class="field"><label>Quantity</label><input id="qty" type="text" inputmode="decimal" placeholder="25"></div>
-<div class="field"><label>Margin (₹)</label><input id="margin" type="text" inputmode="decimal" placeholder="0"></div>
-<div class="field"><label>Buy entry price (₹)</label><input id="buy" type="text" inputmode="decimal" placeholder="45.00"></div>
-<div class="field"><label>Sell entry price (₹)</label><input id="sell" type="text" inputmode="decimal" placeholder="120.00"></div>
+<div class="field full"><label>Quantity (Qty)</label><input id="quantity" type="text" inputmode="decimal" placeholder="50" required></div>
+<div class="field full" style="position:relative;"><label style="color:var(--red); font-weight:700;">Sell PE Strike (Short Put)</label><input id="sellPESymbol" type="text" placeholder="Type strike e.g. 24000" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="peDropdown" class="autocomplete-dropdown"></div></div>
+<div class="field"><label>PE Entry Price (₹)</label><input id="sellPEEntry" type="text" inputmode="decimal" placeholder="120.00" required></div>
+<div class="field full" style="position:relative;"><label style="color:var(--blue); font-weight:700;">Sell CE Strike (Short Call)</label><input id="sellCESymbol" type="text" placeholder="Type strike e.g. 26000" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="ceDropdown" class="autocomplete-dropdown"></div></div>
+<div class="field"><label>CE Entry Price (₹)</label><input id="sellCEEntry" type="text" inputmode="decimal" placeholder="110.00" required></div>
+<div class="field full"><label style="color:var(--green); font-weight:700;">Expected Target Profit (₹)</label><input id="targetProfit" type="text" inputmode="decimal" placeholder="10000" required></div>
 </div>
-<div class="pillrow"><span class="pill" id="weekday">Weekday: —</span><span class="pill" id="slFactor">SL: —</span><span class="pill" id="targetFactor">Target: —</span></div>
-<div class="btnrow"><button class="btn secondary" id="clear">Clear inputs</button></div>
-</section>
-
-<section class="panel">
-<h2>Ledger Outputs</h2>
-<div class="outputs" style="margin-top:10px;">
-<div class="out primary"><span>Sell Strike SL</span><strong id="sellSL">—</strong></div>
-<div class="out primary"><span>Target Profit</span><strong id="target">—</strong></div>
+<div style="margin-top:16px;">
+<button type="submit" id="submitBtn" class="btn">🚀 Start Positional Monitoring</button>
+<button type="button" class="btn secondary" onclick="stopMonitoring()">⏹️ Stop & Clear Position</button>
 </div>
-<div class="status" id="status">Enter all four values to calculate the levels.</div>
-</section>
-</div>
-
-<!-- COLUMN 2: SPREAD CONFIG & LIVE MONITOR -->
-<div style="display:grid; gap:16px;">
-<section class="panel">
-<h2>Spread Symbols</h2>
-<p class="sub">Select option symbols (Auto-search current expiry).</p>
-<!-- Strategy Switcher -->
-<div class="strategy-switch">
-    <button type="button" class="strat-btn active" id="btnBullPut" onclick="setStrategy('BullPut')">Bull Put Spread (PE)</button>
-    <button type="button" class="strat-btn" id="btnBearCall" onclick="setStrategy('BearCall')">Bear Call Spread (CE)</button>
-</div>
-<form id="spreadForm" onsubmit="event.preventDefault(); startMonitoring();">
-<div class="fields">
-<div class="field full" style="position:relative;"><label style="color:var(--red); font-weight:700;">🔴 Sell Leg Symbol</label><input id="sellSymbol" type="text" placeholder="Type strike e.g. 74200" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="sellDropdown" class="autocomplete-dropdown"></div></div>
-<div class="field full" style="position:relative;"><label style="color:var(--green); font-weight:700;">🟢 Buy Leg Symbol</label><input id="buySymbol" type="text" placeholder="Type strike e.g. 74500" required autocomplete="off" style="text-transform:uppercase; font-family:'JetBrains Mono',monospace;"><div id="buyDropdown" class="autocomplete-dropdown"></div></div>
-</div>
-<div class="btnrow"><button type="button" onclick="startMonitoring()" class="btn" style="margin-top:14px;">🚀 Start Monitoring Spread</button></div>
 </form>
 </section>
 
 <section class="panel">
-<h2>Live Spread Status</h2>
-<p class="sub">Real-time LTP ticks & Telegram alerts.</p>
+<h2>Live Position Status</h2>
+<p class="sub">Real-time LTP, PnL & 1:3 Ratio / Target Alerts.</p>
 <div class="outputs">
-<div class="out"><span>Sell Leg (<span id="dispSellSymbol">—</span>)<br><small>Entry: <span id="dispSellEntry">0</span> | SL: <span id="dispSellSL" style="color:var(--red);">0</span></small></span><strong id="dispSellLTP">—</strong></div>
-<div class="out"><span>Buy Leg (<span id="dispBuySymbol">—</span>)<br><small>Entry: <span id="dispBuyEntry">0</span></small></span><strong id="dispBuyLTP">—</strong></div>
+<div class="out"><span>Sell PE (<span id="dispPESymbol">—</span>)<br><small>Entry: <span id="dispPEEntry">0</span></small></span><strong id="dispPELTP">—</strong></div>
+<div class="out"><span>Sell CE (<span id="dispCESymbol">—</span>)<br><small>Entry: <span id="dispCEEntry">0</span></small></span><strong id="dispCELTP">—</strong></div>
 <div class="out primary"><span>Combined PnL (<span id="dispQty">0</span> Qty)<br><small>Target: <span id="dispTarget">₹0</span></small></span><strong id="dispPnL">—</strong></div>
 </div>
-<div class="status" id="statusAlert">⏳ No active spread monitoring.</div>
+<div class="status" id="statusAlert">⏳ No active positional strangle monitoring.</div>
 </section>
 </div>
-</div>
 
-<footer>Matches weekday formulas, current expiry auto-search, Fyers WebSocket live SL & Target Telegram alerts. All timings in IST.</footer>
+<footer>Nifty Monthly Expiry Only | 1:3 LTP Ratio Adjustment Signal & Roll Handler | Target Alert | Positional Overnight Persistence. All timings in IST.</footer>
 </main>
 <script>
 const $=id=>document.getElementById(id);
-const parseNum=id=>{const raw=$(id).value.replace(/,/g,'').trim();return raw===''?null:Number(raw)};
-const n=id=>{const v=parseNum(id);return v!==null&&Number.isFinite(v)?v:null};
-const rupee=x=>x==null||!Number.isFinite(x)?'—':new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(x);
-function getIndiaDate(){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const o={};parts.forEach(p=>o[p.type]=p.value);return `${o.year}-${o.month}-${o.day}`}
 
-let currentStrategy = 'BullPut'; // 'BullPut' (PE) or 'BearCall' (CE)
-function setStrategy(strat) {
-    currentStrategy = strat;
-    $('btnBullPut').classList.toggle('active', strat === 'BullPut');
-    $('btnBearCall').classList.toggle('active', strat === 'BearCall');
-    $('sellSymbol').value = '';
-    $('buySymbol').value = '';
-}
-
-let calculatedSellSL = 0;
-let calculatedTarget = 0;
-
-function refresh(){
- const iso=getIndiaDate();
- const [y,m,d]=iso.split('-').map(Number);
- const date=new Date(Date.UTC(y,m-1,d));
- const jsDay=date.getUTCDay();
- const excelDay=jsDay===0?1:jsDay+1;
- const dayName=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][jsDay];
- const instrument=(excelDay===2||excelDay===3)?'Nifty':(excelDay===4||excelDay===5)?'Sensex':'—';
- const expiry=(excelDay===3||excelDay===5);
- const slMult=expiry?1.8:1.6;
- const targetMult=expiry?0.8:0.4;
- $('date').value=iso;
- $('instrument').value=instrument==='—'?'No instrument for today':instrument;
- $('weekday').textContent='Weekday: '+dayName;
- $('slFactor').textContent='SL: '+slMult;
- $('targetFactor').textContent='Target: '+targetMult;
- const q=n('qty'),margin=n('margin'),sell=n('sell'),buy=n('buy');
- const buySL=(buy!==null&&buy>0)?Math.round((buy*slMult+Number.EPSILON)*100)/100:null;
- const sellSL=(q!==null&&q>0&&margin!==null&&margin>=0&&sell!==null&&sell>0&&buySL!==null)
-   ?sell+(buySL-buy)+(0.01*margin/q):null;
- const targetValue=(sell!==null&&buy!==null&&q!==null&&q>0)
-   ?(sell-buy)*q*targetMult:null;
-
- $('sellSL').textContent=rupee(sellSL);
- $('target').textContent=rupee(targetValue);
- $('status').textContent=sellSL!==null&&targetValue!==null
-   ?'Calculated using '+dayName+' rules for '+iso+'.'
-   :'Enter quantity, margin, Sell price and Buy price to calculate the two levels.';
-
- calculatedSellSL = sellSL !== null ? sellSL : 0;
- calculatedTarget = targetValue !== null ? targetValue : 0;
-}
-
-function formatIndianLive(el){
- const original=el.value;
- const caret=el.selectionStart ?? original.length;
- const before=original.slice(0,caret);
- const decimalBefore=before.includes('.');
- const digitsBefore=(before.match(/[0-9]/g)||[]).length;
- let cleaned=original.replace(/,/g,'').replace(/[^0-9.]/g,'');
- const firstDot=cleaned.indexOf('.');
- if(firstDot!==-1) cleaned=cleaned.slice(0,firstDot+1)+cleaned.slice(firstDot+1).replace(/\./g,'.');
- const parts=cleaned.split('.');
- let integer=parts[0]||'';
- if(integer.length>3) integer=integer.slice(0,-3).replace(/\B(?=(\d{2})+(?!\d))/g,',')+','+integer.slice(-3);
- const formatted=integer+(parts.length>1?'.'+parts.slice(1).join(''):'');
- el.value=formatted;
- let pos=0,count=0,seenDot=false;
- while(pos<formatted.length && (count<digitsBefore || (decimalBefore && !seenDot))){
-   if(/[0-9]/.test(formatted[pos])) count++;
-   if(formatted[pos]==='.') seenDot=true;
-   pos++;
- }
- el.setSelectionRange(pos,pos);
-}
-
-['qty','margin','sell','buy'].forEach(id=>{
- $(id).addEventListener('input',()=>{formatIndianLive($(id));refresh()});
-});
-$('clear').onclick=()=>{['qty','margin','sell','buy'].forEach(id=>$(id).value='');refresh()};
-
-// Autocomplete for option symbols
-async function setupAutocomplete(inputId, dropdownId) {
+async function setupAutocomplete(inputId, dropdownId, optionType) {
     const input = $(inputId);
     const dropdown = $(dropdownId);
     let timeout = null;
@@ -186,10 +72,8 @@ async function setupAutocomplete(inputId, dropdownId) {
         }
         timeout = setTimeout(async () => {
             try {
-                console.log('Fetching symbols for query:', query, 'strategy:', currentStrategy);
-                const res = await fetch(`/api/search-symbols?q=${encodeURIComponent(query)}&strategy=${currentStrategy}`);
+                const res = await fetch(`/api/search-monthly?q=${encodeURIComponent(query)}&type=${optionType}`);
                 const symbols = await res.json();
-                console.log('Received symbols:', symbols);
                 if (symbols.length > 0) {
                     dropdown.innerHTML = symbols.map(s => `<div class="autocomplete-item" onclick="selectSymbol('${inputId}', '${dropdownId}', '${s}')">${s}</div>`).join('');
                     dropdown.style.display = 'block';
@@ -197,7 +81,6 @@ async function setupAutocomplete(inputId, dropdownId) {
                     dropdown.style.display = 'none';
                 }
             } catch(e) {
-                console.error('Autocomplete error:', e);
                 dropdown.style.display = 'none';
             }
         }, 200);
@@ -215,108 +98,114 @@ function selectSymbol(inputId, dropdownId, symbol) {
     $(dropdownId).style.display = 'none';
 }
 
-setupAutocomplete('sellSymbol', 'sellDropdown');
-setupAutocomplete('buySymbol', 'buyDropdown');
+setupAutocomplete('sellPESymbol', 'peDropdown', 'PE');
+setupAutocomplete('sellCESymbol', 'ceDropdown', 'CE');
 
-async function startMonitoring() {
-    console.log('startMonitoring() triggered!');
-    refresh();
-    const q = n('qty');
-    const buy = n('buy');
-    const sell = n('sell');
+let isMonitoringActive = false;
 
-    console.log('Validated inputs -> Qty:', q, 'Buy:', buy, 'Sell:', sell, 'SL:', calculatedSellSL, 'Target:', calculatedTarget);
-
-    if (q === null || buy === null || sell === null || calculatedSellSL <= 0) {
-        alert('ERROR: Please enter valid Quantity, Buy entry, and Sell entry in Strike Ledger first.');
-        return;
-    }
-
-    const sellSym = document.getElementById('sellSymbol').value.replace(/\s+/g, '').toUpperCase();
-    const buySym = document.getElementById('buySymbol').value.replace(/\s+/g, '').toUpperCase();
-
-    if (!sellSym) {
-        alert('ERROR: Please enter or select a Sell Leg Symbol.');
-        return;
-    }
-    if (!buySym) {
-        alert('ERROR: Please enter or select a Buy Leg Symbol.');
-        return;
-    }
-
+document.getElementById('strangleForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
     const data = {
-        sellSymbol: sellSym,
-        sellEntry: sell,
-        sellSL: calculatedSellSL,
-        buySymbol: buySym,
-        buyEntry: buy,
-        targetProfit: calculatedTarget,
-        quantity: q
+        qty: parseInt($('quantity').value) || 50,
+        sellPESymbol: $('sellPESymbol').value.trim().toUpperCase(),
+        sellPEEntry: parseFloat($('sellPEEntry').value),
+        sellCESymbol: $('sellCESymbol').value.trim().toUpperCase(),
+        sellCEEntry: parseFloat($('sellCEEntry').value),
+        targetProfit: parseFloat($('targetProfit').value)
     };
 
-    console.log('Sending start-spread payload:', data);
+    const endpoint = isMonitoringActive ? '/api/update-strangle' : '/api/start-strangle';
+    const actionName = isMonitoringActive ? 'Updated & Adjusted' : 'Started';
 
     try {
-        const res = await fetch('/api/start-spread', {
+        const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
         const text = await res.text();
-        console.log('Start-spread response status:', res.status, 'body:', text);
         if (res.ok) {
-            alert('SUCCESS: Spread monitoring started successfully!');
+            alert('SUCCESS: Short Strangle positional monitoring ' + actionName + '!');
             pollStatus();
         } else {
-            alert('SERVER ERROR (' + res.status + '): ' + text);
+            alert('SERVER ERROR: ' + text);
         }
     } catch (err) {
-        console.error('Start-spread fetch exception:', err);
         alert('NETWORK ERROR: ' + err.message);
+    }
+});
+
+async function stopMonitoring() {
+    if (!confirm('Are you sure you want to stop monitoring, close all WebSocket connections, and clear all position data?')) return;
+    try {
+        const res = await fetch('/api/stop-strangle', { method: 'POST' });
+        if (res.ok) {
+            alert('Position cleared and monitoring stopped successfully.');
+            isMonitoringActive = false;
+            $('submitBtn').textContent = '🚀 Start Positional Monitoring';
+            $('dispPESymbol').innerText = '—';
+            $('dispPELTP').innerText = '—';
+            $('dispPEEntry').innerText = '0';
+            $('dispCESymbol').innerText = '—';
+            $('dispCELTP').innerText = '—';
+            $('dispCEEntry').innerText = '0';
+            $('dispQty').innerText = '0';
+            $('dispPnL').innerText = '—';
+            $('dispTarget').innerText = '₹0';
+            const alertBox = $('statusAlert');
+            alertBox.style.background = '#f1eee7';
+            alertBox.style.color = 'var(--ink)';
+            alertBox.innerText = '⏳ No active positional strangle monitoring.';
+        } else {
+            alert('Error stopping monitoring.');
+        }
+    } catch (e) {
+        alert('Network error: ' + e.message);
     }
 }
 
 async function pollStatus() {
     try {
-        const res = await fetch('/api/spread-status');
+        const res = await fetch('/api/strangle-status');
         const data = await res.json();
         if (data.active) {
-            document.getElementById('dispSellSymbol').innerText = data.sellSymbol;
-            document.getElementById('dispSellLTP').innerText = '₹' + data.sellLTP.toFixed(2);
-            document.getElementById('dispSellEntry').innerText = data.sellEntry;
-            document.getElementById('dispSellSL').innerText = data.sellSL.toFixed(2);
+            isMonitoringActive = true;
+            $('submitBtn').textContent = '🔄 Update / Adjust Active Position';
 
-            document.getElementById('dispBuySymbol').innerText = data.buySymbol;
-            document.getElementById('dispBuyLTP').innerText = '₹' + data.buyLTP.toFixed(2);
-            document.getElementById('dispBuyEntry').innerText = data.buyEntry;
+            $('dispPESymbol').innerText = data.sellPESymbol;
+            $('dispPELTP').innerText = '₹' + data.sellPELTP.toFixed(2);
+            $('dispPEEntry').innerText = data.sellPEEntry;
 
-            document.getElementById('dispQty').innerText = data.quantity;
-            document.getElementById('dispPnL').innerText = '₹' + data.pnl.toFixed(2);
-            document.getElementById('dispTarget').innerText = '₹' + Math.round(data.targetProfit);
+            $('dispCESymbol').innerText = data.sellCESymbol;
+            $('dispCELTP').innerText = '₹' + data.sellCELTP.toFixed(2);
+            $('dispCEEntry').innerText = data.sellCEEntry;
 
-            const alertBox = document.getElementById('statusAlert');
-            if (data.status === 'SL_HIT') {
-                alertBox.style.background = '#fdf2f2';
-                alertBox.style.color = '#b91c1c';
-                alertBox.innerText = '🚨 SELL LEG STOP LOSS HIT! Telegram alert sent.';
-            } else if (data.status === 'TARGET_HIT') {
+            $('dispQty').innerText = data.qty;
+            $('dispPnL').innerText = '₹' + data.pnl.toFixed(2);
+            $('dispTarget').innerText = '₹' + Math.round(data.targetProfit);
+
+            const alertBox = $('statusAlert');
+            if (data.status === 'TARGET_HIT') {
                 alertBox.style.background = '#f3f6f2';
                 alertBox.style.color = '#1c7658';
-                alertBox.innerText = '🎯 TARGET PROFIT REACHED! Telegram alert sent.';
-            } else if (data.status === 'CLOSED_12PM') {
-                alertBox.style.background = '#fff3cd';
-                alertBox.style.color = '#856404';
-                alertBox.innerText = '⏰ 12:00 PM IST EoD Reached. Session closed.';
+                alertBox.innerText = '🎯 TARGET PROFIT REACHED! Monitoring stopped & data cleared.';
+                isMonitoringActive = false;
+                $('submitBtn').textContent = '🚀 Start Positional Monitoring';
+            } else if (data.status === 'RATIO_1_3_HIT') {
+                alertBox.style.background = '#fef3c7';
+                alertBox.style.color = '#b45309';
+                alertBox.innerText = '⚠️ 1:3 LTP RATIO REACHED! Please adjust strikes & update position above.';
             } else {
                 alertBox.style.background = '#e2f0d9';
                 alertBox.style.color = '#1c7658';
-                alertBox.innerText = '🟢 Monitoring Active...';
+                alertBox.innerText = '🟢 Positional Monitoring Active (Overnight)';
             }
+        } else {
+            isMonitoringActive = false;
+            $('submitBtn').textContent = '🚀 Start Positional Monitoring';
         }
     } catch (e) {}
 }
 
-refresh();
-setInterval(refresh,60000);
 setInterval(pollStatus, 1500);
 </script></body></html>

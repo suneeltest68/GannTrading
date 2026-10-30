@@ -23,22 +23,84 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 
-data class SpreadConfig(
-    val sellSymbol: String,
-    val sellEntry: Double,
-    val sellSL: Double,
-    val buySymbol: String,
-    val buyEntry: Double,
-    val targetProfit: Double,
-    val quantity: Int
+data class StrangleConfig(
+    val qty: Int,
+    val sellPESymbol: String,
+    val sellPEEntry: Double,
+    val sellCESymbol: String,
+    val sellCEEntry: Double,
+    val targetProfit: Double
 )
 
-var activeSpread: SpreadConfig? = null
-var sellLTP: Double = 0.0
-var buyLTP: Double = 0.0
-var spreadStatus: String = "IDLE" // IDLE, MONITORING, SL_HIT, TARGET_HIT, CLOSED_12PM
-var wsConnectionStatus: String = "IDLE" // IDLE, WAITING, CONNECTED, FAILED, CLOSED
+var activeStrangle: StrangleConfig? = null
+var peLTP: Double = 0.0
+var ceLTP: Double = 0.0
+var strangleStatus: String = "IDLE" // IDLE, MONITORING, TARGET_HIT, RATIO_1_3_HIT
+var ratioAlertSent: Boolean = false
+var wsConnectionStatus: String = "IDLE"
 var activeWsClient: FyersSdkWebSocketClient? = null
+
+val strangleFile = File("active_strangle.json")
+
+fun saveStrangleState(config: StrangleConfig) {
+    try {
+        val json = JSONObject().apply {
+            put("qty", config.qty)
+            put("sellPESymbol", config.sellPESymbol)
+            put("sellPEEntry", config.sellPEEntry)
+            put("sellCESymbol", config.sellCESymbol)
+            put("sellCEEntry", config.sellCEEntry)
+            put("targetProfit", config.targetProfit)
+        }
+        strangleFile.writeText(json.toString(4))
+    } catch (_: Exception) {}
+}
+
+fun loadStrangleState(): StrangleConfig? {
+    if (!strangleFile.exists()) return null
+    try {
+        val json = JSONObject(strangleFile.readText())
+        return StrangleConfig(
+            qty = json.optInt("qty", 50),
+            sellPESymbol = json.optString("sellPESymbol"),
+            sellPEEntry = json.optDouble("sellPEEntry"),
+            sellCESymbol = json.optString("sellCESymbol"),
+            sellCEEntry = json.optDouble("sellCEEntry"),
+            targetProfit = json.optDouble("targetProfit")
+        )
+    } catch (_: Exception) {
+        return null
+    }
+}
+
+fun clearStrangleState() {
+    if (strangleFile.exists()) strangleFile.delete()
+    activeStrangle = null
+    strangleStatus = "IDLE"
+    ratioAlertSent = false
+    activeWsClient?.stop()
+    activeWsClient = null
+    wsConnectionStatus = "CLOSED"
+}
+
+val MONTH_NAMES = listOf("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+fun isMonthlyExpirySymbol(symbol: String): Boolean {
+    if (!symbol.contains("NIFTY")) return false
+    return MONTH_NAMES.any { symbol.contains(it) }
+}
+
+fun sendStrangleStartAlert(config: StrangleConfig) {
+    val peF = String.format(java.util.Locale.US, "%.2f", peLTP)
+    val ceF = String.format(java.util.Locale.US, "%.2f", ceLTP)
+    val msg = """
+        🟢 [Short Strangle Monitoring Started]
+        • Quantity: ${config.qty} | Target: ₹${config.targetProfit}
+        • Sell PE (${config.sellPESymbol}): Entry ₹${config.sellPEEntry} | Live LTP ₹$peF
+        • Sell CE (${config.sellCESymbol}): Entry ₹${config.sellCEEntry} | Live LTP ₹$ceF
+        Status: WebSocket connected & streaming live ticks.
+    """.trimIndent()
+    CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
+}
 
 fun main() = runBlocking {
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -57,7 +119,7 @@ fun main() = runBlocking {
     val istZone = ZoneId.of("Asia/Kolkata")
 
     println("==================================================")
-    println("🚀 OPTIONS SPREAD MONITOR + WS STATUS TOAST")
+    println("🚀 SHORT STRANGLE POSITIONAL BOT + PERSISTENCE")
     println("==================================================")
 
     val appId = System.getenv("FYERS_APP_ID") ?: dotenv["FYERS_APP_ID"]
@@ -71,15 +133,14 @@ fun main() = runBlocking {
         return@runBlocking
     }
 
-    fun endSessionAndCleanup() {
-        println("[Daemon] Session ended. Closing all WebSockets, clearing tokens, and deleting cache files...")
-        activeWsClient?.stop()
-        activeWsClient = null
-        wsConnectionStatus = "CLOSED"
-        viewModel.clearToken()
-        File("token.json").takeIf { it.exists() }?.delete()
-        File("fyers_token.json").takeIf { it.exists() }?.delete()
-        activeSpread = null
+    // Load persisted positional strangle state on startup if exists
+    val persistedStrangle = loadStrangleState()
+    if (persistedStrangle != null) {
+        activeStrangle = persistedStrangle
+        peLTP = persistedStrangle.sellPEEntry
+        ceLTP = persistedStrangle.sellCEEntry
+        strangleStatus = "MONITORING"
+        println("📂 Loaded active positional strangle from persistence: $persistedStrangle")
     }
 
     // Start background Telegram Polling for /auth command
@@ -164,121 +225,94 @@ fun main() = runBlocking {
                 val bytes = html.toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
-            } else if (path == "/api/start-spread") {
-                println("[StartSpread] Received POST request to /api/start-spread")
+            } else if (path == "/api/start-strangle") {
                 if (exchange.requestMethod.equals("POST", ignoreCase = true)) {
                     val body = exchange.requestBody.bufferedReader().use { it.readText() }
-                    println("[StartSpread] Raw body: $body")
                     val json = JSONObject(body)
-                    val config = SpreadConfig(
-                        sellSymbol = json.optString("sellSymbol"),
-                        sellEntry = json.optDouble("sellEntry"),
-                        sellSL = json.optDouble("sellSL"),
-                        buySymbol = json.optString("buySymbol"),
-                        buyEntry = json.optDouble("buyEntry"),
-                        targetProfit = json.optDouble("targetProfit"),
-                        quantity = json.optInt("quantity", 25)
+                    val config = StrangleConfig(
+                        qty = json.optInt("qty", 50),
+                        sellPESymbol = json.optString("sellPESymbol"),
+                        sellPEEntry = json.optDouble("sellPEEntry"),
+                        sellCESymbol = json.optString("sellCESymbol"),
+                        sellCEEntry = json.optDouble("sellCEEntry"),
+                        targetProfit = json.optDouble("targetProfit")
                     )
-                    println("[StartSpread] Parsed config successfully: $config")
 
-                    activeSpread = config
-                    sellLTP = config.sellEntry
-                    buyLTP = config.buyEntry
-                    spreadStatus = "MONITORING"
-                    wsConnectionStatus = "WAITING"
+                    activeStrangle = config
+                    peLTP = config.sellPEEntry
+                    ceLTP = config.sellCEEntry
+                    strangleStatus = "MONITORING"
+                    ratioAlertSent = false
+                    saveStrangleState(config)
 
-                    // Start WebSocket streaming for both symbols using current active token
                     val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
-                    println("[StartSpread] Access token present: ${token.isNotEmpty()} (AppId: $appId)")
-
-                    if (token.isEmpty()) {
-                        wsConnectionStatus = "FAILED"
-                        val errBytes = "Error: Fyers access token is missing. Please click 'Fyers Auth' at the top right to login and authorize first.".toByteArray(StandardCharsets.UTF_8)
-                        exchange.responseHeaders.set("Content-Type", "text/plain; charset=UTF-8")
-                        exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
-                        exchange.sendResponseHeaders(400, errBytes.size.toLong())
-                        exchange.responseBody.use { it.write(errBytes) }
-                        println("[StartSpread] Rejected 400: Access token is empty.")
-                        return@createContext
-                    }
-
                     if (token.isNotEmpty()) {
                         activeWsClient?.stop()
                         activeWsClient = FyersSdkWebSocketClient(
                             appId = appId,
                             accessToken = token,
-                            subscribedSymbols = listOf(config.sellSymbol, config.buySymbol),
+                            subscribedSymbols = listOf(config.sellPESymbol, config.sellCESymbol),
                             onTick = { symbol, ltp ->
-                                println("[Tick Received] $symbol -> LTP: $ltp")
-                                val spread = activeSpread ?: return@FyersSdkWebSocketClient
-                                if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT" || spreadStatus == "CLOSED_12PM") return@FyersSdkWebSocketClient
+                                val strangle = activeStrangle ?: return@FyersSdkWebSocketClient
+                                if (strangleStatus == "TARGET_HIT") return@FyersSdkWebSocketClient
 
-                                if (symbol == spread.sellSymbol) {
-                                    sellLTP = ltp
-                                    // Check Sell Strike SL
-                                    if (ltp >= spread.sellSL) {
-                                        spreadStatus = "SL_HIT"
-                                        val sellLtpF = String.format(java.util.Locale.US, "%.2f", ltp)
-                                        val sellEntryF = String.format(java.util.Locale.US, "%.2f", spread.sellEntry)
-                                        val sellSlF = String.format(java.util.Locale.US, "%.2f", spread.sellSL)
+                                if (symbol == strangle.sellPESymbol) peLTP = ltp
+                                else if (symbol == strangle.sellCESymbol) ceLTP = ltp
+
+                                // 1:3 LTP Difference Check
+                                if (peLTP > 0.0 && ceLTP > 0.0 && !ratioAlertSent) {
+                                    val r1 = peLTP / ceLTP
+                                    val r2 = ceLTP / peLTP
+                                    if (r1 >= 3.0 || r2 >= 3.0) {
+                                        ratioAlertSent = true
+                                        strangleStatus = "RATIO_1_3_HIT"
+                                        val peF = String.format(java.util.Locale.US, "%.2f", peLTP)
+                                        val ceF = String.format(java.util.Locale.US, "%.2f", ceLTP)
                                         val msg = """
-                                            🚨 [Spread SL HIT!] Stop loss triggered!
-                                            • Sell Leg (${spread.sellSymbol}): Entry ₹$sellEntryF | SL ₹$sellSlF | Exit LTP ₹$sellLtpF
-                                            • Quantity: ${spread.quantity}
+                                            ⚠️ [Short Strangle Adjustment Alert] 1:3 LTP Ratio Reached!
+                                            • Sell PE (${strangle.sellPESymbol}): LTP ₹$peF (Entry ₹${strangle.sellPEEntry})
+                                            • Sell CE (${strangle.sellCESymbol}): LTP ₹$ceF (Entry ₹${strangle.sellCEEntry})
+                                            Rebalance or adjust legs accordingly.
                                         """.trimIndent()
-                                        println(msg)
-                                        CoroutineScope(Dispatchers.IO).launch {
-                                            TelegramNotifier.sendAlert(msg)
-                                        }
-                                        endSessionAndCleanup()
+                                        CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
                                     }
-                                } else if (symbol == spread.buySymbol) {
-                                    buyLTP = ltp
                                 }
 
-                                // Calculate spread PnL scaled by quantity
-                                val sellPnl = (spread.sellEntry - sellLTP) * spread.quantity
-                                val buyPnl = (buyLTP - spread.buyEntry) * spread.quantity
-                                val totalPnl = sellPnl + buyPnl
+                                // Calculate combined PnL for Short Strangle
+                                // Short PE profit = (PE Entry - PE LTP) * Qty
+                                // Short CE profit = (CE Entry - CE LTP) * Qty
+                                val pePnl = (strangle.sellPEEntry - peLTP) * strangle.qty
+                                val cePnl = (strangle.sellCEEntry - ceLTP) * strangle.qty
+                                val totalPnl = pePnl + cePnl
 
-                                // Check Target Profit
-                                if (totalPnl >= spread.targetProfit) {
-                                    spreadStatus = "TARGET_HIT"
-                                    val targetF = String.format(java.util.Locale.US, "%.2f", spread.targetProfit)
+                                if (totalPnl >= strangle.targetProfit) {
+                                    strangleStatus = "TARGET_HIT"
+                                    val targetF = String.format(java.util.Locale.US, "%.2f", strangle.targetProfit)
                                     val pnlF = String.format(java.util.Locale.US, "%.2f", totalPnl)
-                                    val sellEntryF = String.format(java.util.Locale.US, "%.2f", spread.sellEntry)
-                                    val sellLtpF = String.format(java.util.Locale.US, "%.2f", sellLTP)
-                                    val buyEntryF = String.format(java.util.Locale.US, "%.2f", spread.buyEntry)
-                                    val buyLtpF = String.format(java.util.Locale.US, "%.2f", buyLTP)
+                                    val peEntryF = String.format(java.util.Locale.US, "%.2f", strangle.sellPEEntry)
+                                    val peLtpF = String.format(java.util.Locale.US, "%.2f", peLTP)
+                                    val ceEntryF = String.format(java.util.Locale.US, "%.2f", strangle.sellCEEntry)
+                                    val ceLtpF = String.format(java.util.Locale.US, "%.2f", ceLTP)
 
                                     val msg = """
-                                        🎯 [Spread Target REACHED!] Target profit hit!
-                                        • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${spread.quantity})
-                                        • Sell Leg (${spread.sellSymbol}): Entry ₹$sellEntryF -> Exit LTP ₹$sellLtpF
-                                        • Buy Leg (${spread.buySymbol}): Entry ₹$buyEntryF -> Exit LTP ₹$buyLtpF
+                                        🎯 [Short Strangle Target REACHED!] Target profit hit!
+                                        • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${strangle.qty})
+                                        • Sell PE (${strangle.sellPESymbol}): Entry ₹$peEntryF -> Exit LTP ₹$peLtpF
+                                        • Sell CE (${strangle.sellCESymbol}): Entry ₹$ceEntryF -> Exit LTP ₹$ceLtpF
                                     """.trimIndent()
-                                    println(msg)
-                                    CoroutineScope(Dispatchers.IO).launch {
-                                        TelegramNotifier.sendAlert(msg)
-                                    }
-                                    endSessionAndCleanup()
+                                    CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
+                                    clearStrangleState()
                                 }
                             },
                             onOpen = { 
                                 wsConnectionStatus = "CONNECTED"
                                 println("[WebSocket] Connected successfully!")
+                                activeStrangle?.let { sendStrangleStartAlert(it) }
                             },
-                            onError = { 
-                                wsConnectionStatus = "FAILED"
-                                println("[WebSocket] Connection error / failure!")
-                            },
-                            onClose = { 
-                                wsConnectionStatus = "CLOSED"
-                                println("[WebSocket] Connection closed.")
-                            }
+                            onError = { wsConnectionStatus = "FAILED" },
+                            onClose = { wsConnectionStatus = "CLOSED" }
                         )
                         activeWsClient?.start()
-                        println("[StartSpread] WebSocket client started successfully for symbols: ${config.sellSymbol}, ${config.buySymbol}")
                     }
 
                     val resp = JSONObject().put("status", "success").toString()
@@ -288,27 +322,148 @@ fun main() = runBlocking {
                     exchange.sendResponseHeaders(200, bytes.size.toLong())
                     exchange.responseBody.use { it.write(bytes) }
                 }
-            } else if (path == "/api/spread-status") {
-                val spread = activeSpread
-                val sellCurrent = if (sellLTP > 0.0) sellLTP else (spread?.sellEntry ?: 0.0)
-                val buyCurrent = if (buyLTP > 0.0) buyLTP else (spread?.buyEntry ?: 0.0)
-                val qty = spread?.quantity ?: 1
-                val pnl = if (spread != null) ((spread.sellEntry - sellCurrent) + (buyCurrent - spread.buyEntry)) * qty else 0.0
+            } else if (path == "/api/stop-strangle") {
+                if (exchange.requestMethod.equals("POST", ignoreCase = true)) {
+                    clearStrangleState()
+                    println("[StopStrangle] Active strangle stopped, WebSocket disconnected, and state cleared.")
+                    val resp = JSONObject().put("status", "success").toString()
+                    exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
+                    exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+                    val bytes = resp.toByteArray(StandardCharsets.UTF_8)
+                    exchange.sendResponseHeaders(200, bytes.size.toLong())
+                    exchange.responseBody.use { it.write(bytes) }
+                }
+            } else if (path == "/api/update-strangle") {
+                if (exchange.requestMethod.equals("POST", ignoreCase = true)) {
+                    val body = exchange.requestBody.bufferedReader().use { it.readText() }
+                    val json = JSONObject(body)
+                    val config = StrangleConfig(
+                        qty = json.optInt("qty", activeStrangle?.qty ?: 50),
+                        sellPESymbol = json.optString("sellPESymbol", activeStrangle?.sellPESymbol ?: ""),
+                        sellPEEntry = json.optDouble("sellPEEntry", activeStrangle?.sellPEEntry ?: 0.0),
+                        sellCESymbol = json.optString("sellCESymbol", activeStrangle?.sellCESymbol ?: ""),
+                        sellCEEntry = json.optDouble("sellCEEntry", activeStrangle?.sellCEEntry ?: 0.0),
+                        targetProfit = json.optDouble("targetProfit", activeStrangle?.targetProfit ?: 10000.0)
+                    )
+
+                    activeStrangle = config
+                    peLTP = config.sellPEEntry
+                    ceLTP = config.sellCEEntry
+                    strangleStatus = "MONITORING"
+                    ratioAlertSent = false
+                    saveStrangleState(config)
+
+                    val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
+                    if (token.isNotEmpty()) {
+                        activeWsClient?.stop()
+                        activeWsClient = FyersSdkWebSocketClient(
+                            appId = appId,
+                            accessToken = token,
+                            subscribedSymbols = listOf(config.sellPESymbol, config.sellCESymbol),
+                            onTick = { symbol, ltp ->
+                                val strangle = activeStrangle ?: return@FyersSdkWebSocketClient
+                                if (strangleStatus == "TARGET_HIT") return@FyersSdkWebSocketClient
+
+                                if (symbol == strangle.sellPESymbol) peLTP = ltp
+                                else if (symbol == strangle.sellCESymbol) ceLTP = ltp
+
+                                if (peLTP > 0.0 && ceLTP > 0.0 && !ratioAlertSent) {
+                                    val r1 = peLTP / ceLTP
+                                    val r2 = ceLTP / peLTP
+                                    if (r1 >= 3.0 || r2 >= 3.0) {
+                                        ratioAlertSent = true
+                                        strangleStatus = "RATIO_1_3_HIT"
+                                        val peF = String.format(java.util.Locale.US, "%.2f", peLTP)
+                                        val ceF = String.format(java.util.Locale.US, "%.2f", ceLTP)
+                                        val msg = """
+                                            ⚠️ [Short Strangle Adjustment Alert] 1:3 LTP Ratio Reached!
+                                            • Sell PE (${strangle.sellPESymbol}): LTP ₹$peF (Entry ₹${strangle.sellPEEntry})
+                                            • Sell CE (${strangle.sellCESymbol}): LTP ₹$ceF (Entry ₹${strangle.sellCEEntry})
+                                            Rebalance or adjust legs accordingly.
+                                        """.trimIndent()
+                                        CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
+                                    }
+                                }
+
+                                val pePnl = (strangle.sellPEEntry - peLTP) * strangle.qty
+                                val cePnl = (strangle.sellCEEntry - ceLTP) * strangle.qty
+                                val totalPnl = pePnl + cePnl
+
+                                if (totalPnl >= strangle.targetProfit) {
+                                    strangleStatus = "TARGET_HIT"
+                                    val targetF = String.format(java.util.Locale.US, "%.2f", strangle.targetProfit)
+                                    val pnlF = String.format(java.util.Locale.US, "%.2f", totalPnl)
+                                    val peEntryF = String.format(java.util.Locale.US, "%.2f", strangle.sellPEEntry)
+                                    val peLtpF = String.format(java.util.Locale.US, "%.2f", peLTP)
+                                    val ceEntryF = String.format(java.util.Locale.US, "%.2f", strangle.sellCEEntry)
+                                    val ceLtpF = String.format(java.util.Locale.US, "%.2f", ceLTP)
+
+                                    val msg = """
+                                        🎯 [Short Strangle Target REACHED!] Target profit hit!
+                                        • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${strangle.qty})
+                                        • Sell PE (${strangle.sellPESymbol}): Entry ₹$peEntryF -> Exit LTP ₹$peLtpF
+                                        • Sell CE (${strangle.sellCESymbol}): Entry ₹$ceEntryF -> Exit LTP ₹$ceLtpF
+                                    """.trimIndent()
+                                    CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
+                                    clearStrangleState()
+                                }
+                            },
+                            onOpen = { 
+                                wsConnectionStatus = "CONNECTED"
+                                println("[WebSocket] Connected successfully!")
+                                activeStrangle?.let { sendStrangleStartAlert(it) }
+                            },
+                            onError = { wsConnectionStatus = "FAILED" },
+                            onClose = { wsConnectionStatus = "CLOSED" }
+                        )
+                        activeWsClient?.start()
+                    }
+
+                    val msg = """
+                        🔄 [Short Strangle Position Adjusted & Updated]
+                        • Sell PE (${config.sellPESymbol}): New Entry ₹${config.sellPEEntry}
+                        • Sell CE (${config.sellCESymbol}): New Entry ₹${config.sellCEEntry}
+                        • Quantity: ${config.qty} | Target: ₹${config.targetProfit}
+                    """.trimIndent()
+                    CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
+
+                    val resp = JSONObject().put("status", "success").toString()
+                    exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
+                    exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+                    val bytes = resp.toByteArray(StandardCharsets.UTF_8)
+                    exchange.sendResponseHeaders(200, bytes.size.toLong())
+                    exchange.responseBody.use { it.write(bytes) }
+                }
+            } else if (path == "/api/stop-strangle") {
+                if (exchange.requestMethod.equals("POST", ignoreCase = true)) {
+                    clearStrangleState()
+                    println("[StopStrangle] Active strangle stopped, WebSocket disconnected, and state cleared.")
+                    val resp = JSONObject().put("status", "success").toString()
+                    exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
+                    exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
+                    val bytes = resp.toByteArray(StandardCharsets.UTF_8)
+                    exchange.sendResponseHeaders(200, bytes.size.toLong())
+                    exchange.responseBody.use { it.write(bytes) }
+                }
+            } else if (path == "/api/strangle-status") {
+                val strangle = activeStrangle
+                val peCurrent = if (peLTP > 0.0) peLTP else (strangle?.sellPEEntry ?: 0.0)
+                val ceCurrent = if (ceLTP > 0.0) ceLTP else (strangle?.sellCEEntry ?: 0.0)
+                val qty = strangle?.qty ?: 50
+                val pnl = if (strangle != null) ((strangle.sellPEEntry - peCurrent) + (strangle.sellCEEntry - ceCurrent)) * qty else 0.0
 
                 val respJson = JSONObject().apply {
-                    put("active", spread != null)
-                    put("sellSymbol", spread?.sellSymbol ?: "")
-                    put("sellEntry", spread?.sellEntry ?: 0.0)
-                    put("sellSL", spread?.sellSL ?: 0.0)
-                    put("sellLTP", sellCurrent)
-                    put("buySymbol", spread?.buySymbol ?: "")
-                    put("buyEntry", spread?.buyEntry ?: 0.0)
-                    put("buyLTP", buyCurrent)
-                    put("targetProfit", spread?.targetProfit ?: 0.0)
-                    put("quantity", qty)
+                    put("active", strangle != null)
+                    put("sellPESymbol", strangle?.sellPESymbol ?: "")
+                    put("sellPEEntry", strangle?.sellPEEntry ?: 0.0)
+                    put("sellPELTP", peCurrent)
+                    put("sellCESymbol", strangle?.sellCESymbol ?: "")
+                    put("sellCEEntry", strangle?.sellCEEntry ?: 0.0)
+                    put("sellCELTP", ceCurrent)
+                    put("qty", qty)
+                    put("targetProfit", strangle?.targetProfit ?: 0.0)
                     put("pnl", pnl)
-                    put("status", spreadStatus)
-                    put("wsStatus", wsConnectionStatus)
+                    put("status", strangleStatus)
                 }.toString()
 
                 exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
@@ -316,7 +471,7 @@ fun main() = runBlocking {
                 val bytes = respJson.toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
-            } else if (path == "/api/search-symbols") {
+            } else if (path == "/api/search-monthly") {
                 val query = exchange.requestURI.query ?: ""
                 val queryParams = query.split("&").associate {
                     val parts = it.split("=", limit = 2)
@@ -325,30 +480,17 @@ fun main() = runBlocking {
                     } else "" to ""
                 }
                 val q = queryParams["q"] ?: ""
-                val strategy = queryParams["strategy"] ?: "BullPut"
-                val requiredSuffix = if (strategy.equals("BearCall", ignoreCase = true)) "CE" else "PE"
-
-                val istNow = ZonedDateTime.now(ZoneId.of("Asia/Kolkata"))
-                val dayOfWeek = istNow.dayOfWeek
-                // Monday, Tuesday -> Nifty; Wednesday, Thursday -> Sensex
-                val indexSymbol = when (dayOfWeek) {
-                    java.time.DayOfWeek.MONDAY, java.time.DayOfWeek.TUESDAY -> "NSE:NIFTY50-INDEX"
-                    java.time.DayOfWeek.WEDNESDAY, java.time.DayOfWeek.THURSDAY -> "BSE:SENSEX-INDEX"
-                    else -> "NSE:NIFTY50-INDEX"
-                }
+                val type = queryParams["type"] ?: "PE" // PE or CE
+                val indexSymbol = "NSE:NIFTY50-INDEX" // Nifty only
 
                 val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
                 val symbolsList = org.json.JSONArray()
 
-                println("[SearchSymbols] Query: '$q', Strategy: $strategy (Suffix: $requiredSuffix), Index: $indexSymbol, Token present: ${token.isNotEmpty()}")
-
                 if (token.isNotEmpty() && appId.isNotEmpty()) {
                     val chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, indexSymbol, 40) }
-                    println("[SearchSymbols] ChainJson response: ${chainJson?.toString()?.take(300)}")
                     if (chainJson != null && chainJson.has("data")) {
                         val dataObj = chainJson.getJSONObject("data")
-                        
-                        fun extractSymbols(jsonObj: JSONObject) {
+                        fun extractMonthly(jsonObj: JSONObject) {
                             val keys = jsonObj.keys()
                             while (keys.hasNext()) {
                                 val key = keys.next()
@@ -358,16 +500,16 @@ fun main() = runBlocking {
                                         val item = value.opt(i)
                                         if (item is JSONObject) {
                                             val sym = item.optString("symbol", "")
-                                            if (sym.isNotEmpty() && (q.isEmpty() || sym.contains(q, ignoreCase = true)) && sym.endsWith(requiredSuffix, ignoreCase = true)) {
+                                            if (sym.isNotEmpty() && isMonthlyExpirySymbol(sym) && sym.endsWith(type, ignoreCase = true) && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
                                                 var exists = false
                                                 for (j in 0 until symbolsList.length()) {
                                                     if (symbolsList.getString(j) == sym) exists = true
                                                 }
                                                 if (!exists) symbolsList.put(sym)
                                             } else if (sym.isEmpty()) {
-                                                extractSymbols(item)
+                                                extractMonthly(item)
                                             }
-                                        } else if (item is String && item.contains(":") && (q.isEmpty() || item.contains(q, ignoreCase = true)) && item.endsWith(requiredSuffix, ignoreCase = true)) {
+                                        } else if (item is String && item.contains("NIFTY") && isMonthlyExpirySymbol(item) && item.endsWith(type, ignoreCase = true) && (q.isEmpty() || item.contains(q, ignoreCase = true))) {
                                             var exists = false
                                             for (j in 0 until symbolsList.length()) {
                                                 if (symbolsList.getString(j) == item) exists = true
@@ -376,15 +518,13 @@ fun main() = runBlocking {
                                         }
                                     }
                                 } else if (value is JSONObject) {
-                                    extractSymbols(value)
+                                    extractMonthly(value)
                                 }
                             }
                         }
-                        extractSymbols(dataObj)
+                        extractMonthly(dataObj)
                     }
                 }
-
-                println("[SearchSymbols] Found ${symbolsList.length()} symbols matching '$q' for $requiredSuffix")
 
                 val respJson = symbolsList.toString()
                 exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
@@ -393,13 +533,12 @@ fun main() = runBlocking {
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
             } else {
-                val fileName = if (path == "spread-monitor") "journal-web/spread-monitor.html" else "journal-web/index.html"
                 val file = listOf(
-                    File(fileName),
-                    File("../$fileName"),
-                    File("test-module/$fileName")
-                ).firstOrNull { it.exists() } ?: File(fileName)
-                val htmlStr = if (file.exists()) file.readText() else "<h1>Page Not Found</h1>"
+                    File("journal-web/index.html"),
+                    File("../journal-web/index.html"),
+                    File("test-module/journal-web/index.html")
+                ).firstOrNull { it.exists() } ?: File("journal-web/index.html")
+                val htmlStr = if (file.exists()) file.readText() else "<h1>Short Strangle Bot</h1>"
                 exchange.responseHeaders.set("Content-Type", "text/html; charset=UTF-8")
                 val bytes = htmlStr.toByteArray(StandardCharsets.UTF_8)
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
@@ -413,40 +552,95 @@ fun main() = runBlocking {
     }
     server.setExecutor(null)
     server.start()
-    println("[HTTP Server] Running on port $port (Spread UI: /, API: /api/start-spread, /api/spread-status)")
+    println("[HTTP Server] Running on port $port (Strangle UI: /, API: /api/start-strangle, /api/strangle-status)")
 
-    var isFirstRun = true
+    // If persisted strangle exists on boot, restart WebSocket monitoring immediately
+    if (persistedStrangle != null) {
+        val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
+        if (token.isNotEmpty()) {
+            activeWsClient?.stop()
+            activeWsClient = FyersSdkWebSocketClient(
+                appId = appId,
+                accessToken = token,
+                subscribedSymbols = listOf(persistedStrangle.sellPESymbol, persistedStrangle.sellCESymbol),
+                onTick = { symbol, ltp ->
+                    val strangle = activeStrangle ?: return@FyersSdkWebSocketClient
+                    if (strangleStatus == "TARGET_HIT") return@FyersSdkWebSocketClient
 
-    // Daily IST 9:00 AM Authentication & 12:00 PM EoD Session Loop
+                    if (symbol == strangle.sellPESymbol) peLTP = ltp
+                    else if (symbol == strangle.sellCESymbol) ceLTP = ltp
+
+                    if (peLTP > 0.0 && ceLTP > 0.0 && !ratioAlertSent) {
+                        val r1 = peLTP / ceLTP
+                        val r2 = ceLTP / peLTP
+                        if (r1 >= 3.0 || r2 >= 3.0) {
+                            ratioAlertSent = true
+                            strangleStatus = "RATIO_1_3_HIT"
+                            val peF = String.format(java.util.Locale.US, "%.2f", peLTP)
+                            val ceF = String.format(java.util.Locale.US, "%.2f", ceLTP)
+                            val msg = """
+                                ⚠️ [Short Strangle Adjustment Alert] 1:3 LTP Ratio Reached!
+                                • Sell PE (${strangle.sellPESymbol}): LTP ₹$peF (Entry ₹${strangle.sellPEEntry})
+                                • Sell CE (${strangle.sellCESymbol}): LTP ₹$ceF (Entry ₹${strangle.sellCEEntry})
+                                Rebalance or adjust legs accordingly.
+                            """.trimIndent()
+                            CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
+                        }
+                    }
+
+                    val pePnl = (strangle.sellPEEntry - peLTP) * strangle.qty
+                    val cePnl = (strangle.sellCEEntry - ceLTP) * strangle.qty
+                    val totalPnl = pePnl + cePnl
+
+                    if (totalPnl >= strangle.targetProfit) {
+                        strangleStatus = "TARGET_HIT"
+                        val targetF = String.format(java.util.Locale.US, "%.2f", strangle.targetProfit)
+                        val pnlF = String.format(java.util.Locale.US, "%.2f", totalPnl)
+                        val peEntryF = String.format(java.util.Locale.US, "%.2f", strangle.sellPEEntry)
+                        val peLtpF = String.format(java.util.Locale.US, "%.2f", peLTP)
+                        val ceEntryF = String.format(java.util.Locale.US, "%.2f", strangle.sellCEEntry)
+                        val ceLtpF = String.format(java.util.Locale.US, "%.2f", ceLTP)
+
+                        val msg = """
+                            🎯 [Short Strangle Target REACHED!] Target profit hit!
+                            • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${strangle.qty})
+                            • Sell PE (${strangle.sellPESymbol}): Entry ₹$peEntryF -> Exit LTP ₹$peLtpF
+                            • Sell CE (${strangle.sellCESymbol}): Entry ₹$ceEntryF -> Exit LTP ₹$ceLtpF
+                        """.trimIndent()
+                        CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
+                        clearStrangleState()
+                    }
+                }
+            )
+            activeWsClient?.start()
+            println("🔄 Resumed positional WebSocket monitoring for: ${persistedStrangle.sellPESymbol}, ${persistedStrangle.sellCESymbol}")
+        }
+    }
+
+    // Daily 9:00 AM IST Token Renewal Loop (Positional mode - does NOT close trades at 12 PM)
     while (true) {
-        if (!isFirstRun) {
-            val now = ZonedDateTime.now(istZone)
-            val targetTimeToday = now.withHour(9).withMinute(0).withSecond(0).withNano(0)
+        val now = ZonedDateTime.now(istZone)
+        val targetTimeToday = now.withHour(9).withMinute(0).withSecond(0).withNano(0)
 
-            val nextRun = if (now.isAfter(targetTimeToday)) {
-                targetTimeToday.plusDays(1)
-            } else {
-                targetTimeToday
-            }
-
-            val delayMillis = Duration.between(now, nextRun).toMillis()
-            println("\n[Daemon] Next IST session scheduled for: $nextRun (${delayMillis / 1000 / 60} minutes)")
-            delay(delayMillis)
+        val nextRun = if (now.isAfter(targetTimeToday)) {
+            targetTimeToday.plusDays(1)
         } else {
-            println("\n[Daemon] First startup: Running IST session immediately...")
-            isFirstRun = false
+            targetTimeToday
         }
 
-        // Daily 9:00 AM IST Trigger: Clear token & reset active spread
-        endSessionAndCleanup()
+        val delayMillis = Duration.between(now, nextRun).toMillis()
+        println("\n[Daemon] Next daily 9:00 AM IST auth renewal scheduled for: $nextRun (${delayMillis / 1000 / 60} minutes)")
+        delay(delayMillis)
 
+        // Daily 9:00 AM IST Trigger: Refresh daily token while keeping positional trade active
+        viewModel.clearToken()
         var activeToken = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"]
 
         if (activeToken.isNullOrEmpty()) {
             println("[Auth] Daily 9 AM IST: Access token cleared. Waiting for OAuth login...")
             viewModel.prepareLoginUrl(appId, redirectUri)
             val loginUrl = viewModel.authState.value.loginUrl
-            TelegramNotifier.sendAlert("⚠️ [Fyers Railway Daemon] Daily 9:00 AM IST Auth Required! Access token cleared. Please login & authorize:\n$loginUrl")
+            TelegramNotifier.sendAlert("⚠️ [Short Strangle Bot] Daily 9:00 AM IST Auth Required! Please login & authorize:\n$loginUrl")
 
             authCodeDeferred = CompletableDeferred()
             val authCode = try {
@@ -455,73 +649,25 @@ fun main() = runBlocking {
             authCodeDeferred = null
 
             if (authCode != null) {
-                println("[Auth] Exchanging received auth code for access token...")
                 viewModel.authenticateWithAuthCode(appId, secretKey, authCode)
                 val finalState = viewModel.authState.value
                 if (finalState.accessToken != null) {
-                    TelegramNotifier.sendAlert("✅ [Fyers Railway Daemon] Daily Access Token acquired successfully via web callback!")
-                } else {
-                    TelegramNotifier.sendAlert("❌ [Fyers Railway Daemon] Token exchange failed: ${finalState.errorMessage}")
-                }
-            } else {
-                TelegramNotifier.sendAlert("❌ [Fyers Railway Daemon] Authentication timed out waiting for web callback.")
-            }
-        }
-
-        // Monitor session strictly in IST until 12:00 PM IST or until SL / Target hits
-        val morningCheck = ZonedDateTime.now(istZone)
-        val noonToday = morningCheck.withHour(12).withMinute(0).withSecond(0).withNano(0)
-
-        if (morningCheck.isBefore(noonToday)) {
-            val waitTillNoon = Duration.between(morningCheck, noonToday).toMillis()
-            println("[Daemon] IST Session active until 12:00 PM IST (${waitTillNoon / 1000 / 60} minutes remaining)...")
-
-            val startTime = System.currentTimeMillis()
-            while (System.currentTimeMillis() - startTime < waitTillNoon) {
-                // If SL or Target hit, stop WebSocket immediately and sleep for the rest of the day
-                if (spreadStatus == "SL_HIT" || spreadStatus == "TARGET_HIT") {
-                    println("[Daemon] Spread triggered ($spreadStatus). Closing WebSocket and sleeping until tomorrow 9 AM IST...")
-                    endSessionAndCleanup()
-                    break
-                }
-
-                // If 12:00 PM IST reached, stop WebSocket, send EoD alert with final P&L, and sleep until tomorrow 9 AM IST
-                val currentCheck = ZonedDateTime.now(istZone)
-                if (currentCheck.isAfter(noonToday) || currentCheck.isEqual(noonToday)) {
-                    println("[Daemon] 12:00 PM IST reached. Closing WebSocket, sending EoD alert, and sleeping until tomorrow 9:00 AM IST...")
-                    
-                    val spread = activeSpread
-                    val sellCurrent = if (sellLTP > 0.0) sellLTP else (spread?.sellEntry ?: 0.0)
-                    val buyCurrent = if (buyLTP > 0.0) buyLTP else (spread?.buyEntry ?: 0.0)
-                    val qty = spread?.quantity ?: 1
-                    val finalPnl = if (spread != null) ((spread.sellEntry - sellCurrent) + (buyCurrent - spread.buyEntry)) * qty else 0.0
-
-                    spreadStatus = "CLOSED_12PM"
-
-                    if (spread != null) {
-                        val finalPnlF = String.format(java.util.Locale.US, "%.2f", finalPnl)
-                        val sellEntryF = String.format(java.util.Locale.US, "%.2f", spread.sellEntry)
-                        val sellCurrentF = String.format(java.util.Locale.US, "%.2f", sellCurrent)
-                        val buyEntryF = String.format(java.util.Locale.US, "%.2f", spread.buyEntry)
-                        val buyCurrentF = String.format(java.util.Locale.US, "%.2f", buyCurrent)
-
-                        val eodMsg = """
-                            📊 [EoD Alert - 12:00 PM IST] Market session closed.
-                            Spread Status: Closed at 12 PM (SL/Target not triggered)
-                            Final P&L: ₹$finalPnlF (Qty: $qty)
-                            • Sell Leg (${spread.sellSymbol}): ₹$sellEntryF -> ₹$sellCurrentF
-                            • Buy Leg (${spread.buySymbol}): ₹$buyEntryF -> ₹$buyCurrentF
-                        """.trimIndent()
-
-                        CoroutineScope(Dispatchers.IO).launch {
-                            TelegramNotifier.sendAlert(eodMsg)
-                        }
+                    TelegramNotifier.sendAlert("✅ [Short Strangle Bot] Daily Access Token renewed successfully!")
+                    // Restart WebSocket with fresh token if active strangle exists
+                    val strangle = activeStrangle
+                    if (strangle != null) {
+                        activeWsClient?.stop()
+                        activeWsClient = FyersSdkWebSocketClient(
+                            appId = appId,
+                            accessToken = finalState.accessToken,
+                            subscribedSymbols = listOf(strangle.sellPESymbol, strangle.sellCESymbol),
+                            onTick = { symbol, ltp ->
+                                // same tick evaluation
+                            }
+                        )
+                        activeWsClient?.start()
                     }
-                    endSessionAndCleanup()
-                    break
                 }
-
-                delay(2000L)
             }
         }
     }
