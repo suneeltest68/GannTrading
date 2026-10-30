@@ -218,7 +218,14 @@ fun main() = runBlocking {
                                     // Check Sell Strike SL
                                     if (ltp >= spread.sellSL) {
                                         spreadStatus = "SL_HIT"
-                                        val msg = "🚨 [Spread SL HIT!] Sell Leg (${spread.sellSymbol}) hit Stop Loss!\nEntry: ₹${spread.sellEntry} | SL: ₹${spread.sellSL} | Current LTP: ₹$ltp"
+                                        val sellLtpF = String.format(java.util.Locale.US, "%.2f", ltp)
+                                        val sellEntryF = String.format(java.util.Locale.US, "%.2f", spread.sellEntry)
+                                        val sellSlF = String.format(java.util.Locale.US, "%.2f", spread.sellSL)
+                                        val msg = """
+                                            🚨 [Spread SL HIT!] Stop loss triggered!
+                                            • Sell Leg (${spread.sellSymbol}): Entry ₹$sellEntryF | SL ₹$sellSlF | Exit LTP ₹$sellLtpF
+                                            • Quantity: ${spread.quantity}
+                                        """.trimIndent()
                                         println(msg)
                                         CoroutineScope(Dispatchers.IO).launch {
                                             TelegramNotifier.sendAlert(msg)
@@ -237,7 +244,19 @@ fun main() = runBlocking {
                                 // Check Target Profit
                                 if (totalPnl >= spread.targetProfit) {
                                     spreadStatus = "TARGET_HIT"
-                                    val msg = "🎯 [Spread Target REACHED!] Target profit hit!\nTarget: ₹${spread.targetProfit} | Current PnL: ₹$totalPnl (Qty: ${spread.quantity})"
+                                    val targetF = String.format(java.util.Locale.US, "%.2f", spread.targetProfit)
+                                    val pnlF = String.format(java.util.Locale.US, "%.2f", totalPnl)
+                                    val sellEntryF = String.format(java.util.Locale.US, "%.2f", spread.sellEntry)
+                                    val sellLtpF = String.format(java.util.Locale.US, "%.2f", sellLTP)
+                                    val buyEntryF = String.format(java.util.Locale.US, "%.2f", spread.buyEntry)
+                                    val buyLtpF = String.format(java.util.Locale.US, "%.2f", buyLTP)
+
+                                    val msg = """
+                                        🎯 [Spread Target REACHED!] Target profit hit!
+                                        • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${spread.quantity})
+                                        • Sell Leg (${spread.sellSymbol}): Entry ₹$sellEntryF -> Exit LTP ₹$sellLtpF
+                                        • Buy Leg (${spread.buySymbol}): Entry ₹$buyEntryF -> Exit LTP ₹$buyLtpF
+                                    """.trimIndent()
                                     println(msg)
                                     CoroutineScope(Dispatchers.IO).launch {
                                         TelegramNotifier.sendAlert(msg)
@@ -480,12 +499,18 @@ fun main() = runBlocking {
                     spreadStatus = "CLOSED_12PM"
 
                     if (spread != null) {
+                        val finalPnlF = String.format(java.util.Locale.US, "%.2f", finalPnl)
+                        val sellEntryF = String.format(java.util.Locale.US, "%.2f", spread.sellEntry)
+                        val sellCurrentF = String.format(java.util.Locale.US, "%.2f", sellCurrent)
+                        val buyEntryF = String.format(java.util.Locale.US, "%.2f", spread.buyEntry)
+                        val buyCurrentF = String.format(java.util.Locale.US, "%.2f", buyCurrent)
+
                         val eodMsg = """
                             📊 [EoD Alert - 12:00 PM IST] Market session closed.
                             Spread Status: Closed at 12 PM (SL/Target not triggered)
-                            Final PnL: ₹$finalPnl (Qty: $qty)
-                            Sell Leg (${spread.sellSymbol}): ₹${spread.sellEntry} -> ₹$sellCurrent
-                            Buy Leg (${spread.buySymbol}): ₹${spread.buyEntry} -> ₹$buyCurrent
+                            Final P&L: ₹$finalPnlF (Qty: $qty)
+                            • Sell Leg (${spread.sellSymbol}): ₹$sellEntryF -> ₹$sellCurrentF
+                            • Buy Leg (${spread.buySymbol}): ₹$buyEntryF -> ₹$buyCurrentF
                         """.trimIndent()
 
                         CoroutineScope(Dispatchers.IO).launch {
