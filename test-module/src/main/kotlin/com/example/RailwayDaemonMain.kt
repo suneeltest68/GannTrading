@@ -498,10 +498,9 @@ fun main() = runBlocking {
                                     val strike = item.optInt("strike_price", -1)
                                     
                                     val matchesType = optType.equals(type, ignoreCase = true) || sym.endsWith(type, ignoreCase = true)
-                                    val matchesMonth = allowedMonthCodes.isEmpty() || allowedMonthCodes.any { sym.contains(it, ignoreCase = true) }
                                     val matchesQuery = q.isEmpty() || sym.contains(q, ignoreCase = true) || (strike > 0 && strike.toString().contains(q))
 
-                                    if (sym.isNotEmpty() && sym.contains("NIFTY") && matchesType && matchesMonth && matchesQuery) {
+                                    if (sym.isNotEmpty() && sym.contains("NIFTY") && matchesType && matchesQuery) {
                                         var exists = false
                                         for (j in 0 until symbolsList.length()) {
                                             if (symbolsList.getString(j) == sym) exists = true
