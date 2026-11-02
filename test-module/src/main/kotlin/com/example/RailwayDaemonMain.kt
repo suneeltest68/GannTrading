@@ -475,6 +475,20 @@ fun main() = runBlocking {
 
                     if (chainJson != null && chainJson.has("data")) {
                         val dataObj = chainJson.getJSONObject("data")
+                        
+                        val monthlyExpiryTimestamps = mutableSetOf<String>()
+                        val expiryData = dataObj.optJSONArray("expiryData")
+                        if (expiryData != null) {
+                            for (i in 0 until expiryData.length()) {
+                                val expObj = expiryData.optJSONObject(i)
+                                if (expObj != null && expObj.optString("expiry_flag") == "M") {
+                                    val expTs = expObj.optString("expiry", "")
+                                    if (expTs.isNotEmpty()) monthlyExpiryTimestamps.add(expTs)
+                                }
+                            }
+                        }
+                        println("[SearchMonthly] Monthly Expiry Timestamps: $monthlyExpiryTimestamps")
+
                         val optionsChain = dataObj.optJSONArray("optionsChain")
                         println("[SearchMonthly] optionsChain length: ${optionsChain?.length() ?: 0}")
                         if (optionsChain != null) {
@@ -484,11 +498,13 @@ fun main() = runBlocking {
                                     val sym = item.optString("symbol", "")
                                     val optType = item.optString("option_type", "")
                                     val strike = item.optInt("strike_price", -1)
+                                    val itemExpiry = item.optString("expiry", "")
                                     
                                     val matchesType = optType.equals(type, ignoreCase = true) || sym.endsWith(type, ignoreCase = true)
+                                    val matchesMonth = monthlyExpiryTimestamps.isEmpty() || monthlyExpiryTimestamps.contains(itemExpiry)
                                     val matchesQuery = q.isEmpty() || sym.contains(q, ignoreCase = true) || (strike > 0 && strike.toString().contains(q))
 
-                                    if (sym.isNotEmpty() && sym.contains("NIFTY") && matchesType && matchesQuery) {
+                                    if (sym.isNotEmpty() && sym.contains("NIFTY") && matchesType && matchesMonth && matchesQuery) {
                                         var exists = false
                                         for (j in 0 until symbolsList.length()) {
                                             if (symbolsList.getString(j) == sym) exists = true
