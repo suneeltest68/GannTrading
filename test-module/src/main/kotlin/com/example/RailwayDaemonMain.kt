@@ -439,7 +439,6 @@ fun main() = runBlocking {
                 }
                 val q = queryParams["q"] ?: ""
                 val type = queryParams["type"] ?: "PE" // PE or CE
-                val indexSymbol = "NSE:NIFTY50-INDEX"
 
                 val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
                 val symbolsList = org.json.JSONArray()
@@ -447,7 +446,10 @@ fun main() = runBlocking {
                 println("[SearchMonthly] Query: '$q', Type: $type, Token present: ${token.isNotEmpty()}")
 
                 if (token.isNotEmpty() && appId.isNotEmpty()) {
-                    val chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, indexSymbol, 40) }
+                    var chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY-INDEX", 40) }
+                    if (chainJson == null || !chainJson.has("data") || chainJson.optJSONObject("data")?.optJSONArray("optionsChain")?.length() == 0) {
+                        chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY50-INDEX", 40) }
+                    }
                     if (chainJson != null && chainJson.has("data")) {
                         val dataObj = chainJson.getJSONObject("data")
                         

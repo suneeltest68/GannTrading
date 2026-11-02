@@ -96,7 +96,7 @@ class FyersRepository {
             fyersClass.clientId = appId
             fyersClass.accessToken = accessToken
 
-            val tuple = fyersClass.GetOptionChain(symbol, strikeCount, "", "")
+            val tuple = fyersClass.GetOptionChain(symbol, strikeCount, "", "1")
             val chainJson = tuple?.Item1()
             val errorJson = tuple?.Item2()
 
