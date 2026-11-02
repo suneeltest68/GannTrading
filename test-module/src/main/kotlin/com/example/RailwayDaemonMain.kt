@@ -135,42 +135,6 @@ fun main() = runBlocking {
 
     var authCodeDeferred: CompletableDeferred<String>? = null
 
-    // Load persisted positional strangle state on startup if exists
-    val persistedStrangle = loadStrangleState()
-    if (persistedStrangle != null) {
-        activeStrangle = persistedStrangle
-        peLTP = persistedStrangle.sellPEEntry
-        ceLTP = persistedStrangle.sellCEEntry
-        strangleStatus = "MONITORING"
-        println("📂 Loaded active positional strangle from persistence: $persistedStrangle")
-    }
-
-    // Check token on startup and prompt auth if missing
-    var activeToken = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: viewModel.getCachedToken()
-    if (activeToken.isNullOrEmpty()) {
-        println("[Auth] Startup: Access token missing. Requesting OAuth login...")
-        viewModel.prepareLoginUrl(appId, redirectUri)
-        val loginUrl = viewModel.authState.value.loginUrl
-        TelegramNotifier.sendAlert("🔐 [Short Strangle Positional Bot - Fyers Auth Required on Startup] Access token not found. Please click below to login and authorize:\n$loginUrl")
-
-        authCodeDeferred = CompletableDeferred()
-        val authCode = try {
-            withTimeout(60 * 60 * 1000L) { authCodeDeferred?.await() }
-        } catch (_: Exception) { null }
-        authCodeDeferred = null
-
-        if (authCode != null) {
-            println("[Auth] Exchanging received auth code for access token on startup...")
-            viewModel.authenticateWithAuthCode(appId, secretKey, authCode)
-            val finalState = viewModel.authState.value
-            if (finalState.accessToken != null) {
-                TelegramNotifier.sendAlert("✅ [Short Strangle Positional Bot] Startup Access Token acquired successfully via web callback!")
-            } else {
-                TelegramNotifier.sendAlert("❌ [Short Strangle Positional Bot] Token exchange failed: ${finalState.errorMessage}")
-            }
-        }
-    }
-
     // Start background Telegram Polling for /auth command
     CoroutineScope(Dispatchers.IO).launch {
         var lastUpdateId = 0L
@@ -588,21 +552,56 @@ fun main() = runBlocking {
     server.start()
     println("[HTTP Server] Running on port $port (Strangle UI: /, API: /api/start-strangle, /api/strangle-status)")
 
-    // If persisted strangle exists on boot, restart WebSocket monitoring immediately
-    if (persistedStrangle != null) {
-        val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
-        if (token.isNotEmpty()) {
+    // Run startup persistence, token check, and WebSocket restart asynchronously in background (prevents 502 Bad Gateway)
+    CoroutineScope(Dispatchers.IO).launch {
+        val persistedStrangle = loadStrangleState()
+        if (persistedStrangle != null) {
+            activeStrangle = persistedStrangle
+            peLTP = persistedStrangle.sellPEEntry
+            ceLTP = persistedStrangle.sellCEEntry
+            strangleStatus = "MONITORING"
+            println("📂 Loaded active positional strangle from persistence: $persistedStrangle")
+        }
+
+        var activeToken = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: viewModel.getCachedToken()
+        if (activeToken.isNullOrEmpty()) {
+            println("[Auth] Startup: Access token missing. Requesting OAuth login...")
+            viewModel.prepareLoginUrl(appId, redirectUri)
+            val loginUrl = viewModel.authState.value.loginUrl
+            TelegramNotifier.sendAlert("🔐 [Short Strangle Positional Bot - Fyers Auth Required on Startup] Access token not found. Please click below to login and authorize:\n$loginUrl")
+
+            authCodeDeferred = CompletableDeferred()
+            val authCode = try {
+                withTimeout(60 * 60 * 1000L) { authCodeDeferred?.await() }
+            } catch (_: Exception) { null }
+            authCodeDeferred = null
+
+            if (authCode != null) {
+                println("[Auth] Exchanging received auth code for access token on startup...")
+                viewModel.authenticateWithAuthCode(appId, secretKey, authCode)
+                val finalState = viewModel.authState.value
+                activeToken = finalState.accessToken
+                if (activeToken != null) {
+                    TelegramNotifier.sendAlert("✅ [Short Strangle Positional Bot] Startup Access Token acquired successfully via web callback!")
+                } else {
+                    TelegramNotifier.sendAlert("❌ [Short Strangle Positional Bot] Token exchange failed: ${finalState.errorMessage}")
+                }
+            }
+        }
+
+        val strangle = activeStrangle
+        if (strangle != null && !activeToken.isNullOrEmpty()) {
             activeWsClient?.stop()
             activeWsClient = FyersSdkWebSocketClient(
                 appId = appId,
-                accessToken = token,
-                subscribedSymbols = listOf(persistedStrangle.sellPESymbol, persistedStrangle.sellCESymbol),
+                accessToken = activeToken!!,
+                subscribedSymbols = listOf(strangle.sellPESymbol, strangle.sellCESymbol),
                 onTick = { symbol, ltp ->
-                    val strangle = activeStrangle ?: return@FyersSdkWebSocketClient
+                    val s = activeStrangle ?: return@FyersSdkWebSocketClient
                     if (strangleStatus == "TARGET_HIT") return@FyersSdkWebSocketClient
 
-                    if (symbol == strangle.sellPESymbol) peLTP = ltp
-                    else if (symbol == strangle.sellCESymbol) ceLTP = ltp
+                    if (symbol == s.sellPESymbol) peLTP = ltp
+                    else if (symbol == s.sellCESymbol) ceLTP = ltp
 
                     if (peLTP > 0.0 && ceLTP > 0.0 && !ratioAlertSent) {
                         val r1 = peLTP / ceLTP
@@ -613,41 +612,48 @@ fun main() = runBlocking {
                             val peF = String.format(java.util.Locale.US, "%.2f", peLTP)
                             val ceF = String.format(java.util.Locale.US, "%.2f", ceLTP)
                             val msg = """
-                                ⚠️ [Short Strangle Adjustment Alert] 1:3 LTP Ratio Reached!
-                                • Sell PE (${strangle.sellPESymbol}): LTP ₹$peF (Entry ₹${strangle.sellPEEntry})
-                                • Sell CE (${strangle.sellCESymbol}): LTP ₹$ceF (Entry ₹${strangle.sellCEEntry})
+                                ⚠️ [Short Strangle Positional Bot - 1:3 LTP Ratio Reached!]
+                                • Sell PE (${s.sellPESymbol}): LTP ₹$peF (Entry ₹${s.sellPEEntry})
+                                • Sell CE (${s.sellCESymbol}): LTP ₹$ceF (Entry ₹${s.sellCEEntry})
                                 Rebalance or adjust legs accordingly.
                             """.trimIndent()
                             CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
                         }
                     }
 
-                    val pePnl = (strangle.sellPEEntry - peLTP) * strangle.qty
-                    val cePnl = (strangle.sellCEEntry - ceLTP) * strangle.qty
+                    val pePnl = (s.sellPEEntry - peLTP) * s.qty
+                    val cePnl = (s.sellCEEntry - ceLTP) * s.qty
                     val totalPnl = pePnl + cePnl
 
-                    if (totalPnl >= strangle.targetProfit) {
+                    if (totalPnl >= s.targetProfit) {
                         strangleStatus = "TARGET_HIT"
-                        val targetF = String.format(java.util.Locale.US, "%.2f", strangle.targetProfit)
+                        val targetF = String.format(java.util.Locale.US, "%.2f", s.targetProfit)
                         val pnlF = String.format(java.util.Locale.US, "%.2f", totalPnl)
-                        val peEntryF = String.format(java.util.Locale.US, "%.2f", strangle.sellPEEntry)
+                        val peEntryF = String.format(java.util.Locale.US, "%.2f", s.sellPEEntry)
                         val peLtpF = String.format(java.util.Locale.US, "%.2f", peLTP)
-                        val ceEntryF = String.format(java.util.Locale.US, "%.2f", strangle.sellCEEntry)
+                        val ceEntryF = String.format(java.util.Locale.US, "%.2f", s.sellCEEntry)
                         val ceLtpF = String.format(java.util.Locale.US, "%.2f", ceLTP)
 
                         val msg = """
-                            🎯 [Short Strangle Target REACHED!] Target profit hit!
-                            • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${strangle.qty})
-                            • Sell PE (${strangle.sellPESymbol}): Entry ₹$peEntryF -> Exit LTP ₹$peLtpF
-                            • Sell CE (${strangle.sellCESymbol}): Entry ₹$ceEntryF -> Exit LTP ₹$ceLtpF
+                            🎯 [Short Strangle Positional Bot - Target REACHED!] Target profit hit!
+                            • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${s.qty})
+                            • Sell PE (${s.sellPESymbol}): Entry ₹$peEntryF -> Exit LTP ₹$peLtpF
+                            • Sell CE (${s.sellCESymbol}): Entry ₹$ceEntryF -> Exit LTP ₹$ceLtpF
                         """.trimIndent()
                         CoroutineScope(Dispatchers.IO).launch { TelegramNotifier.sendAlert(msg) }
                         clearStrangleState()
                     }
-                }
+                },
+                onOpen = { 
+                    wsConnectionStatus = "CONNECTED"
+                    println("[WebSocket] Connected successfully!")
+                    activeStrangle?.let { sendStrangleStartAlert(it) }
+                },
+                onError = { wsConnectionStatus = "FAILED" },
+                onClose = { wsConnectionStatus = "CLOSED" }
             )
             activeWsClient?.start()
-            println("🔄 Resumed positional WebSocket monitoring for: ${persistedStrangle.sellPESymbol}, ${persistedStrangle.sellCESymbol}")
+            println("🔄 Resumed positional WebSocket monitoring for: ${strangle.sellPESymbol}, ${strangle.sellCESymbol}")
         }
     }
 
