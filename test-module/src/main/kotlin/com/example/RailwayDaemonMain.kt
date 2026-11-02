@@ -481,16 +481,20 @@ fun main() = runBlocking {
                 }
                 val q = queryParams["q"] ?: ""
                 val type = queryParams["type"] ?: "PE" // PE or CE
-                val indexSymbol = "NSE:NIFTY50-INDEX" // Nifty only
+                val indexSymbol = "NSE:NIFTY50-INDEX"
 
                 val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
                 val symbolsList = org.json.JSONArray()
 
+                println("[SearchMonthly] Query: '$q', Type: $type, Token present: ${token.isNotEmpty()}")
+
                 if (token.isNotEmpty() && appId.isNotEmpty()) {
                     val chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, indexSymbol, 40) }
+                    println("[SearchMonthly] ChainJson response: ${chainJson?.toString()?.take(300)}")
                     if (chainJson != null && chainJson.has("data")) {
                         val dataObj = chainJson.getJSONObject("data")
-                        fun extractMonthly(jsonObj: JSONObject) {
+                        
+                        fun extractSymbols(jsonObj: JSONObject) {
                             val keys = jsonObj.keys()
                             while (keys.hasNext()) {
                                 val key = keys.next()
@@ -506,10 +510,10 @@ fun main() = runBlocking {
                                                     if (symbolsList.getString(j) == sym) exists = true
                                                 }
                                                 if (!exists) symbolsList.put(sym)
-                                            } else if (sym.isEmpty()) {
-                                                extractMonthly(item)
+                                            } else {
+                                                extractSymbols(item)
                                             }
-                                        } else if (item is String && item.contains("NIFTY") && isMonthlyExpirySymbol(item) && item.endsWith(type, ignoreCase = true) && (q.isEmpty() || item.contains(q, ignoreCase = true))) {
+                                        } else if (item is String && item.contains(":") && isMonthlyExpirySymbol(item) && item.endsWith(type, ignoreCase = true) && (q.isEmpty() || item.contains(q, ignoreCase = true))) {
                                             var exists = false
                                             for (j in 0 until symbolsList.length()) {
                                                 if (symbolsList.getString(j) == item) exists = true
@@ -518,13 +522,15 @@ fun main() = runBlocking {
                                         }
                                     }
                                 } else if (value is JSONObject) {
-                                    extractMonthly(value)
+                                    extractSymbols(value)
                                 }
                             }
                         }
-                        extractMonthly(dataObj)
+                        extractSymbols(dataObj)
                     }
                 }
+
+                println("[SearchMonthly] Found ${symbolsList.length()} symbols matching '$q' for $type")
 
                 val respJson = symbolsList.toString()
                 exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
