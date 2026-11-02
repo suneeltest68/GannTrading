@@ -93,7 +93,7 @@ fun sendStrangleStartAlert(config: StrangleConfig) {
     val peF = String.format(java.util.Locale.US, "%.2f", peLTP)
     val ceF = String.format(java.util.Locale.US, "%.2f", ceLTP)
     val msg = """
-        🟢 [Short Strangle Monitoring Started]
+        🟢 [Short Strangle Positional Bot - Monitoring Started]
         • Quantity: ${config.qty} | Target: ₹${config.targetProfit}
         • Sell PE (${config.sellPESymbol}): Entry ₹${config.sellPEEntry} | Live LTP ₹$peF
         • Sell CE (${config.sellCESymbol}): Entry ₹${config.sellCEEntry} | Live LTP ₹$ceF
@@ -173,7 +173,7 @@ fun main() = runBlocking {
                                         viewModel.clearToken()
                                         viewModel.prepareLoginUrl(appId, redirectUri)
                                         val loginUrl = viewModel.authState.value.loginUrl
-                                        TelegramNotifier.sendAlert("🔐 [Fyers Auth Requested via Telegram] Old token cleared. Please click below to login and authorize:\n$loginUrl")
+                                        TelegramNotifier.sendAlert("🔐 [Short Strangle Positional Bot - Fyers Auth Requested] Old token cleared. Please click below to login and authorize:\n$loginUrl")
                                     }
                                 }
                             }
@@ -269,7 +269,7 @@ fun main() = runBlocking {
                                         val peF = String.format(java.util.Locale.US, "%.2f", peLTP)
                                         val ceF = String.format(java.util.Locale.US, "%.2f", ceLTP)
                                         val msg = """
-                                            ⚠️ [Short Strangle Adjustment Alert] 1:3 LTP Ratio Reached!
+                                            ⚠️ [Short Strangle Positional Bot - 1:3 LTP Ratio Reached!]
                                             • Sell PE (${strangle.sellPESymbol}): LTP ₹$peF (Entry ₹${strangle.sellPEEntry})
                                             • Sell CE (${strangle.sellCESymbol}): LTP ₹$ceF (Entry ₹${strangle.sellCEEntry})
                                             Rebalance or adjust legs accordingly.
@@ -295,7 +295,7 @@ fun main() = runBlocking {
                                     val ceLtpF = String.format(java.util.Locale.US, "%.2f", ceLTP)
 
                                     val msg = """
-                                        🎯 [Short Strangle Target REACHED!] Target profit hit!
+                                        🎯 [Short Strangle Positional Bot - Target REACHED!] Target profit hit!
                                         • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${strangle.qty})
                                         • Sell PE (${strangle.sellPESymbol}): Entry ₹$peEntryF -> Exit LTP ₹$peLtpF
                                         • Sell CE (${strangle.sellCESymbol}): Entry ₹$ceEntryF -> Exit LTP ₹$ceLtpF
@@ -376,7 +376,7 @@ fun main() = runBlocking {
                                         val peF = String.format(java.util.Locale.US, "%.2f", peLTP)
                                         val ceF = String.format(java.util.Locale.US, "%.2f", ceLTP)
                                         val msg = """
-                                            ⚠️ [Short Strangle Adjustment Alert] 1:3 LTP Ratio Reached!
+                                            ⚠️ [Short Strangle Positional Bot - 1:3 LTP Ratio Reached!]
                                             • Sell PE (${strangle.sellPESymbol}): LTP ₹$peF (Entry ₹${strangle.sellPEEntry})
                                             • Sell CE (${strangle.sellCESymbol}): LTP ₹$ceF (Entry ₹${strangle.sellCEEntry})
                                             Rebalance or adjust legs accordingly.
@@ -399,7 +399,7 @@ fun main() = runBlocking {
                                     val ceLtpF = String.format(java.util.Locale.US, "%.2f", ceLTP)
 
                                     val msg = """
-                                        🎯 [Short Strangle Target REACHED!] Target profit hit!
+                                        🎯 [Short Strangle Positional Bot - Target REACHED!] Target profit hit!
                                         • Target: ₹$targetF | P&L: ₹$pnlF (Qty: ${strangle.qty})
                                         • Sell PE (${strangle.sellPESymbol}): Entry ₹$peEntryF -> Exit LTP ₹$peLtpF
                                         • Sell CE (${strangle.sellCESymbol}): Entry ₹$ceEntryF -> Exit LTP ₹$ceLtpF
@@ -420,7 +420,7 @@ fun main() = runBlocking {
                     }
 
                     val msg = """
-                        🔄 [Short Strangle Position Adjusted & Updated]
+                        🔄 [Short Strangle Positional Bot - Position Adjusted & Updated]
                         • Sell PE (${config.sellPESymbol}): New Entry ₹${config.sellPEEntry}
                         • Sell CE (${config.sellCESymbol}): New Entry ₹${config.sellCEEntry}
                         • Quantity: ${config.qty} | Target: ₹${config.targetProfit}
