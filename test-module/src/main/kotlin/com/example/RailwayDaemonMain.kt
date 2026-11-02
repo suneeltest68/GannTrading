@@ -133,6 +133,8 @@ fun main() = runBlocking {
         return@runBlocking
     }
 
+    var authCodeDeferred: CompletableDeferred<String>? = null
+
     // Load persisted positional strangle state on startup if exists
     val persistedStrangle = loadStrangleState()
     if (persistedStrangle != null) {
@@ -141,6 +143,32 @@ fun main() = runBlocking {
         ceLTP = persistedStrangle.sellCEEntry
         strangleStatus = "MONITORING"
         println("📂 Loaded active positional strangle from persistence: $persistedStrangle")
+    }
+
+    // Check token on startup and prompt auth if missing
+    var activeToken = System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: viewModel.getCachedToken()
+    if (activeToken.isNullOrEmpty()) {
+        println("[Auth] Startup: Access token missing. Requesting OAuth login...")
+        viewModel.prepareLoginUrl(appId, redirectUri)
+        val loginUrl = viewModel.authState.value.loginUrl
+        TelegramNotifier.sendAlert("🔐 [Short Strangle Positional Bot - Fyers Auth Required on Startup] Access token not found. Please click below to login and authorize:\n$loginUrl")
+
+        authCodeDeferred = CompletableDeferred()
+        val authCode = try {
+            withTimeout(60 * 60 * 1000L) { authCodeDeferred?.await() }
+        } catch (_: Exception) { null }
+        authCodeDeferred = null
+
+        if (authCode != null) {
+            println("[Auth] Exchanging received auth code for access token on startup...")
+            viewModel.authenticateWithAuthCode(appId, secretKey, authCode)
+            val finalState = viewModel.authState.value
+            if (finalState.accessToken != null) {
+                TelegramNotifier.sendAlert("✅ [Short Strangle Positional Bot] Startup Access Token acquired successfully via web callback!")
+            } else {
+                TelegramNotifier.sendAlert("❌ [Short Strangle Positional Bot] Token exchange failed: ${finalState.errorMessage}")
+            }
+        }
     }
 
     // Start background Telegram Polling for /auth command
@@ -185,7 +213,7 @@ fun main() = runBlocking {
         }
     }
 
-    var authCodeDeferred: CompletableDeferred<String>? = null
+
 
     // Start 24/7 Background HTTP Server for Web UI Dashboard and REST APIs
     val server = HttpServer.create(InetSocketAddress(port), 0)
@@ -648,7 +676,7 @@ fun main() = runBlocking {
             val loginUrl = viewModel.authState.value.loginUrl
             TelegramNotifier.sendAlert("⚠️ [Short Strangle Bot] Daily 9:00 AM IST Auth Required! Please login & authorize:\n$loginUrl")
 
-            authCodeDeferred = CompletableDeferred()
+        
             val authCode = try {
                 withTimeout(60 * 60 * 1000L) { authCodeDeferred?.await() }
             } catch (_: Exception) { null }
