@@ -446,9 +446,12 @@ fun main() = runBlocking {
                 println("[SearchMonthly] Query: '$q', Type: $type, Token present: ${token.isNotEmpty()}")
 
                 if (token.isNotEmpty() && appId.isNotEmpty()) {
-                    var chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY-INDEX", 40) }
-                    if (chainJson == null || !chainJson.has("data") || chainJson.optJSONObject("data")?.optJSONArray("optionsChain")?.length() == 0) {
-                        chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY50-INDEX", 40) }
+                    var chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY50-INDEX", 40) }
+                    if (chainJson == null || chainJson.optInt("code") != 200) {
+                        chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY50", 40) }
+                    }
+                    if (chainJson == null || chainJson.optInt("code") != 200) {
+                        chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY", 40) }
                     }
                     if (chainJson != null && chainJson.has("data")) {
                         val dataObj = chainJson.getJSONObject("data")
