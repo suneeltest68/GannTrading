@@ -430,6 +430,7 @@ fun main() = runBlocking {
                 exchange.sendResponseHeaders(200, bytes.size.toLong())
                 exchange.responseBody.use { it.write(bytes) }
             } else if (path == "/api/search-monthly") {
+                println("[HTTP] Received request to /api/search-monthly")
                 val query = exchange.requestURI.query ?: ""
                 val queryParams = query.split("&").associate {
                     val parts = it.split("=", limit = 2)
@@ -443,58 +444,39 @@ fun main() = runBlocking {
                 val token = viewModel.getCachedToken() ?: System.getenv("FYERS_ACCESS_TOKEN") ?: dotenv["FYERS_ACCESS_TOKEN"] ?: ""
                 val symbolsList = org.json.JSONArray()
 
-                println("[SearchMonthly] Query: '$q', Type: $type, Token present: ${token.isNotEmpty()}")
+                println("[SearchMonthly] Query: '$q', Type: $type, Token present: ${token.isNotEmpty()}, AppId present: ${appId.isNotEmpty()}")
 
                 if (token.isNotEmpty() && appId.isNotEmpty()) {
-                    var chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY50-INDEX", 40) }
-                    if (chainJson == null || chainJson.optInt("code") != 200) {
-                        chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY50", 40) }
+                    var chainJson: JSONObject? = null
+                    try {
+                        chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY50-INDEX", 40) }
+                        println("[SearchMonthly] NIFTY50-INDEX code: ${chainJson?.optInt("code")}")
+                    } catch (e: Exception) {
+                        println("[SearchMonthly] NIFTY50-INDEX exception: ${e.message}")
                     }
+
                     if (chainJson == null || chainJson.optInt("code") != 200) {
-                        chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY", 40) }
+                        try {
+                            chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY50", 40) }
+                            println("[SearchMonthly] NIFTY50 code: ${chainJson?.optInt("code")}")
+                        } catch (e: Exception) {
+                            println("[SearchMonthly] NIFTY50 exception: ${e.message}")
+                        }
                     }
+
+                    if (chainJson == null || chainJson.optInt("code") != 200) {
+                        try {
+                            chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, "NSE:NIFTY", 40) }
+                            println("[SearchMonthly] NIFTY code: ${chainJson?.optInt("code")}")
+                        } catch (e: Exception) {
+                            println("[SearchMonthly] NIFTY exception: ${e.message}")
+                        }
+                    }
+
                     if (chainJson != null && chainJson.has("data")) {
                         val dataObj = chainJson.getJSONObject("data")
-                        
-                        val allowedMonthCodes = mutableListOf<String>()
-                        val expiryData = dataObj.optJSONArray("expiryData")
-                        if (expiryData != null) {
-                            for (i in 0 until expiryData.length()) {
-                                val expObj = expiryData.optJSONObject(i)
-                                if (expObj != null && expObj.optString("expiry_flag") == "M") {
-                                    val dateStr = expObj.optString("date", "") // e.g. "28-04-2026"
-                                    if (dateStr.contains("-")) {
-                                        val parts = dateStr.split("-")
-                                        if (parts.size == 3) {
-                                            val mNum = parts[1]
-                                            val yr = parts[2].takeLast(2) // "26"
-                                            val mName = when(mNum) {
-                                                "01" -> "JAN"
-                                                "02" -> "FEB"
-                                                "03" -> "MAR"
-                                                "04" -> "APR"
-                                                "05" -> "MAY"
-                                                "06" -> "JUN"
-                                                "07" -> "JUL"
-                                                "08" -> "AUG"
-                                                "09" -> "SEP"
-                                                "10" -> "OCT"
-                                                "11" -> "NOV"
-                                                "12" -> "DEC"
-                                                else -> ""
-                                            }
-                                            if (mName.isNotEmpty()) {
-                                                val code = "$yr$mName" // e.g. "26APR"
-                                                if (!allowedMonthCodes.contains(code)) allowedMonthCodes.add(code)
-                                            }
-                                        }
-                                    }
-                                    if (allowedMonthCodes.size >= 2) break
-                                }
-                            }
-                        }
-
                         val optionsChain = dataObj.optJSONArray("optionsChain")
+                        println("[SearchMonthly] optionsChain length: ${optionsChain?.length() ?: 0}")
                         if (optionsChain != null) {
                             for (i in 0 until optionsChain.length()) {
                                 val item = optionsChain.optJSONObject(i)
@@ -504,10 +486,9 @@ fun main() = runBlocking {
                                     val strike = item.optInt("strike_price", -1)
                                     
                                     val matchesType = optType.equals(type, ignoreCase = true) || sym.endsWith(type, ignoreCase = true)
-                                    val matchesMonth = isMonthlyExpirySymbol(sym)
                                     val matchesQuery = q.isEmpty() || sym.contains(q, ignoreCase = true) || (strike > 0 && strike.toString().contains(q))
 
-                                    if (sym.isNotEmpty() && matchesMonth && matchesType && matchesQuery) {
+                                    if (sym.isNotEmpty() && sym.contains("NIFTY") && matchesType && matchesQuery) {
                                         var exists = false
                                         for (j in 0 until symbolsList.length()) {
                                             if (symbolsList.getString(j) == sym) exists = true
@@ -520,6 +501,7 @@ fun main() = runBlocking {
                     }
                 }
 
+                println("[SearchMonthly] Found ${symbolsList.length()} symbols matching '$q' for $type")
                 val respJson = symbolsList.toString()
                 exchange.responseHeaders.set("Content-Type", "application/json; charset=UTF-8")
                 exchange.responseHeaders.set("Access-Control-Allow-Origin", "*")
