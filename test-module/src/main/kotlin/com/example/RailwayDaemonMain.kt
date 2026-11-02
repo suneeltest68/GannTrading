@@ -495,13 +495,16 @@ fun main() = runBlocking {
                             for (i in 0 until optionsChain.length()) {
                                 val item = optionsChain.optJSONObject(i)
                                 if (item != null) {
+                                    if (i == 0) {
+                                        println("[SearchMonthly] Sample optionChain item: $item")
+                                    }
                                     val sym = item.optString("symbol", "")
                                     val optType = item.optString("option_type", "")
                                     val strike = item.optInt("strike_price", -1)
                                     val itemExpiry = item.optString("expiry", "")
                                     
                                     val matchesType = optType.equals(type, ignoreCase = true) || sym.endsWith(type, ignoreCase = true)
-                                    val matchesMonth = monthlyExpiryTimestamps.isEmpty() || monthlyExpiryTimestamps.contains(itemExpiry)
+                                    val matchesMonth = isMonthlyExpirySymbol(sym) || monthlyExpiryTimestamps.contains(itemExpiry)
                                     val matchesQuery = q.isEmpty() || sym.contains(q, ignoreCase = true) || (strike > 0 && strike.toString().contains(q))
 
                                     if (sym.isNotEmpty() && sym.contains("NIFTY") && matchesType && matchesMonth && matchesQuery) {
