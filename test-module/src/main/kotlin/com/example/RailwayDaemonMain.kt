@@ -87,9 +87,10 @@ fun clearStrangleState() {
     wsConnectionStatus = "CLOSED"
 }
 
+val MONTH_NAMES = listOf("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 fun isMonthlyExpirySymbol(symbol: String): Boolean {
     if (!symbol.contains("NIFTY")) return false
-    return symbol.endsWith("PE") || symbol.endsWith("CE")
+    return MONTH_NAMES.any { symbol.contains(it) } && (symbol.endsWith("PE") || symbol.endsWith("CE"))
 }
 
 fun sendStrangleStartAlert(config: StrangleConfig) {
@@ -498,9 +499,10 @@ fun main() = runBlocking {
                                     val strike = item.optInt("strike_price", -1)
                                     
                                     val matchesType = optType.equals(type, ignoreCase = true) || sym.endsWith(type, ignoreCase = true)
+                                    val matchesMonth = isMonthlyExpirySymbol(sym)
                                     val matchesQuery = q.isEmpty() || sym.contains(q, ignoreCase = true) || (strike > 0 && strike.toString().contains(q))
 
-                                    if (sym.isNotEmpty() && sym.contains("NIFTY") && matchesType && matchesQuery) {
+                                    if (sym.isNotEmpty() && matchesMonth && matchesType && matchesQuery) {
                                         var exists = false
                                         for (j in 0 until symbolsList.length()) {
                                             if (symbolsList.getString(j) == sym) exists = true
