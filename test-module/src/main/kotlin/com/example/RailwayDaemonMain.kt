@@ -496,6 +496,9 @@ fun main() = runBlocking {
                                         val item = value.opt(i)
                                         if (item is JSONObject) {
                                             val sym = item.optString("symbol", "")
+                                            if (sym.isNotEmpty()) {
+                                                println("[SearchMonthly] Examined symbol: $sym (Monthly: ${isMonthlyExpirySymbol(sym)}, EndsWith: ${sym.endsWith(type, ignoreCase = true)})")
+                                            }
                                             if (sym.isNotEmpty() && isMonthlyExpirySymbol(sym) && sym.endsWith(type, ignoreCase = true) && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
                                                 var exists = false
                                                 for (j in 0 until symbolsList.length()) {
