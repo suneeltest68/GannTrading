@@ -83,10 +83,9 @@ fun clearStrangleState() {
     wsConnectionStatus = "CLOSED"
 }
 
-val MONTH_NAMES = listOf("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
 fun isMonthlyExpirySymbol(symbol: String): Boolean {
     if (!symbol.contains("NIFTY")) return false
-    return MONTH_NAMES.any { symbol.contains(it) }
+    return symbol.endsWith("PE") || symbol.endsWith("CE")
 }
 
 fun sendStrangleStartAlert(config: StrangleConfig) {
@@ -482,46 +481,73 @@ fun main() = runBlocking {
 
                 if (token.isNotEmpty() && appId.isNotEmpty()) {
                     val chainJson = runBlocking { viewModel.fetchOptionChain(appId, token, indexSymbol, 40) }
-                    println("[SearchMonthly] ChainJson response: ${chainJson?.toString()?.take(300)}")
+                    println("[SearchMonthly] ChainJson response code: ${chainJson?.optInt("code")}")
                     if (chainJson != null && chainJson.has("data")) {
                         val dataObj = chainJson.getJSONObject("data")
                         
-                        fun extractSymbols(jsonObj: JSONObject) {
-                            val keys = jsonObj.keys()
-                            while (keys.hasNext()) {
-                                val key = keys.next()
-                                val value = jsonObj.opt(key)
-                                if (value is org.json.JSONArray) {
-                                    for (i in 0 until value.length()) {
-                                        val item = value.opt(i)
-                                        if (item is JSONObject) {
-                                            val sym = item.optString("symbol", "")
-                                            if (sym.isNotEmpty()) {
-                                                println("[SearchMonthly] Examined symbol: $sym (Monthly: ${isMonthlyExpirySymbol(sym)}, EndsWith: ${sym.endsWith(type, ignoreCase = true)})")
+                        // Find next monthly expiry date code from expiryData where expiry_flag == "M"
+                        var monthlyCode = ""
+                        val expiryData = dataObj.optJSONArray("expiryData")
+                        if (expiryData != null) {
+                            for (i in 0 until expiryData.length()) {
+                                val expObj = expiryData.optJSONObject(i)
+                                if (expObj != null && expObj.optString("expiry_flag") == "M") {
+                                    val dateStr = expObj.optString("date", "") // e.g. "28-04-2026"
+                                    if (dateStr.contains("-")) {
+                                        val parts = dateStr.split("-")
+                                        if (parts.size == 3) {
+                                            val mNum = parts[1]
+                                            val yr = parts[2].takeLast(2) // "26"
+                                            val mName = when(mNum) {
+                                                "01" -> "JAN"
+                                                "02" -> "FEB"
+                                                "03" -> "MAR"
+                                                "04" -> "APR"
+                                                "05" -> "MAY"
+                                                "06" -> "JUN"
+                                                "07" -> "JUL"
+                                                "08" -> "AUG"
+                                                "09" -> "SEP"
+                                                "10" -> "OCT"
+                                                "11" -> "NOV"
+                                                "12" -> "DEC"
+                                                else -> ""
                                             }
-                                            if (sym.isNotEmpty() && isMonthlyExpirySymbol(sym) && sym.endsWith(type, ignoreCase = true) && (q.isEmpty() || sym.contains(q, ignoreCase = true))) {
-                                                var exists = false
-                                                for (j in 0 until symbolsList.length()) {
-                                                    if (symbolsList.getString(j) == sym) exists = true
-                                                }
-                                                if (!exists) symbolsList.put(sym)
-                                            } else {
-                                                extractSymbols(item)
+                                            if (mName.isNotEmpty()) {
+                                                monthlyCode = "$yr$mName" // e.g. "26APR"
                                             }
-                                        } else if (item is String && item.contains(":") && isMonthlyExpirySymbol(item) && item.endsWith(type, ignoreCase = true) && (q.isEmpty() || item.contains(q, ignoreCase = true))) {
-                                            var exists = false
-                                            for (j in 0 until symbolsList.length()) {
-                                                if (symbolsList.getString(j) == item) exists = true
-                                            }
-                                            if (!exists) symbolsList.put(item)
                                         }
                                     }
-                                } else if (value is JSONObject) {
-                                    extractSymbols(value)
+                                    break
                                 }
                             }
                         }
-                        extractSymbols(dataObj)
+                        println("[SearchMonthly] Detected next monthly expiry code: $monthlyCode")
+
+                        // Extract from optionsChain
+                        val optionsChain = dataObj.optJSONArray("optionsChain")
+                        if (optionsChain != null) {
+                            for (i in 0 until optionsChain.length()) {
+                                val item = optionsChain.optJSONObject(i)
+                                if (item != null) {
+                                    val sym = item.optString("symbol", "")
+                                    val optType = item.optString("option_type", "")
+                                    val strike = item.optInt("strike_price", -1)
+                                    
+                                    val matchesType = optType.equals(type, ignoreCase = true) || sym.endsWith(type, ignoreCase = true)
+                                    val matchesMonthly = monthlyCode.isEmpty() || sym.contains(monthlyCode, ignoreCase = true)
+                                    val matchesQuery = q.isEmpty() || sym.contains(q, ignoreCase = true) || (strike > 0 && strike.toString().contains(q))
+
+                                    if (sym.isNotEmpty() && matchesType && matchesMonthly && matchesQuery) {
+                                        var exists = false
+                                        for (j in 0 until symbolsList.length()) {
+                                            if (symbolsList.getString(j) == sym) exists = true
+                                        }
+                                        if (!exists) symbolsList.put(sym)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
